@@ -2,5 +2,5 @@
 #import <UIKit/UIKit.h>
 #import <ReplayKit/ReplayKit.h>
 
-@interface ScreenRecordingPlugin : NSObject<FlutterPlugin, FlutterStreamHandler, RPScreenRecorderDelegate>
+@interface ScreenRecordingPlugin : NSObject<FlutterPlugin>
 @end

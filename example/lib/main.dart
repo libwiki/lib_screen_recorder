@@ -1,57 +1,49 @@
-import 'dart:io';
-
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:screen_recording/screen_recording.dart';
 import 'dart:async';
-import 'dart:convert';
-import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:screen_recording/screen_recording.dart';
+
 void main() {
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatefulWidget {
+  const MyApp({super.key});
+
   @override
-  _MyAppState createState() => _MyAppState();
+  State<MyApp> createState() => _MyAppState();
 }
 
 class _MyAppState extends State<MyApp> {
-  static const EventChannel _eventChannel = EventChannel('screen_recording_stream');
-  StreamSubscription  _subscription;
-  List<Uint8List> _videoChunks = [];
-  String _outputFilePath = "";
-  bool isRecord = false;
-  double screenWidth;
-  double screenHeight;
+  String _platformVersion = 'Unknown';
+  final _screenRecordingPlugin = ScreenRecording();
 
   @override
   void initState() {
     super.initState();
-    _initOutputFilePath();
-    _subscription = _eventChannel.receiveBroadcastStream().listen((dynamic event) {
-      setState(() {
-        _videoChunks.add(base64Decode(event as String));
-      });
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      setState(() {
-        screenWidth = 375;
-        screenHeight = 812;
-      });
-    });
+    initPlatformState();
   }
 
-  @override
-  void dispose() {
-    _subscription?.cancel();
-    super.dispose();
-  }
+  // Platform messages are asynchronous, so we initialize in an async method.
+  Future<void> initPlatformState() async {
+    String platformVersion;
+    // Platform messages may fail, so we use a try/catch PlatformException.
+    // We also handle the message potentially returning null.
+    try {
+      platformVersion = await _screenRecordingPlugin.platformVersion ?? 'Unknown platform version';
+    } on PlatformException {
+      platformVersion = 'Failed to get platform version.';
+    }
 
-  Future<void> _initOutputFilePath() async {
-    Directory appDocDir = await getApplicationDocumentsDirectory();
-    _outputFilePath = '${appDocDir.path}/recorded_video.mp4';
+    // If the widget was removed from the tree while the asynchronous platform
+    // message was in flight, we want to discard the reply rather than calling
+    // setState to update our non-existent appearance.
+    if (!mounted) return;
+
+    setState(() {
+      _platformVersion = platformVersion;
+    });
   }
 
   @override
@@ -59,31 +51,11 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('录屏测试'),
+          title: const Text('Plugin example app'),
         ),
-        body: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          GestureDetector(
-              onTap: () async {
-                if (!isRecord) {
-                  var x = await ScreenRecording.startRecordScreen("test", screenHeight.toInt(), screenWidth.toInt());
-                } else {
-                  var x = await ScreenRecording.stopRecordScreen;
-                }
-                setState(() {
-                  isRecord = !isRecord;
-                });
-              },
-              child: Text(isRecord ? "录屏中" : "开始录屏")),
-          SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text("是否开启边录边传"),
-              CupertinoSwitch(value: true, onChanged: (value) {}),
-            ],
-          ),
-          Text('Received ${_videoChunks.length} video chunks'),
-        ]),
+        body: Center(
+          child: Text('Running on: $_platformVersion\n'),
+        ),
       ),
     );
   }
