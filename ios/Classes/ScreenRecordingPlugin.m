@@ -12,6 +12,8 @@ API_AVAILABLE(ios(10.0))
 @property NSString *extensionBundleId;
 @property NSString *groupId;
 @property NSString *targetFileName;
+@property (nonatomic, strong) FlutterEventSink eventSink;
+@property (nonatomic, strong) RPScreenRecorder *screenRecorder;
 @property BOOL isInited;
 @end
 
@@ -39,7 +41,19 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
             binaryMessenger:[registrar messenger]];
   ScreenRecordingPlugin* instance = [[ScreenRecordingPlugin alloc] init];
   [registrar addMethodCallDelegate:instance channel:channel];
+
+  FlutterEventChannel* eventChannel = [FlutterEventChannel eventChannelWithName:@"screen_recording_stream" binaryMessenger:[registrar messenger]];
+  [eventChannel setStreamHandler:instance];
 }
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        self.screenRecorder = [RPScreenRecorder sharedRecorder];
+    }
+    return self;
+}
+
 
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
   if ([@"getPlatformVersion" isEqualToString:call.method]) {
@@ -52,8 +66,10 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         self.isInited = YES;
       }
       [self startRecorScreen:call];
+       result(nil);
     } else if ([@"stopRecordScreen" isEqualToString:call.method]) {
-      result(@"FDK");
+      [self stopRecordScreen];
+       result(nil);
     }else {
       result(FlutterMethodNotImplemented);
     }
@@ -104,7 +120,61 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         // Fallback on earlier versions
     }
 
+    if (@available(iOS 11.0, *)) {
+            [self.screenRecorder startCaptureWithHandler:^(CMSampleBufferRef sampleBuffer, RPSampleBufferType bufferType, NSError * _Nullable error) {
+                if (error) {
+                    NSLog(@"Error capturing screen: %@", error.localizedDescription);
+                    return;
+                }
+
+                if (bufferType == RPSampleBufferTypeVideo) {
+                    if (self.eventSink) {
+                        // Process video sample buffer and send it to Flutter
+                        NSData *videoData = [self processSampleBuffer:sampleBuffer];
+                        self.eventSink([videoData base64EncodedStringWithOptions:0]);
+                    }
+                }
+            } completionHandler:^(NSError * _Nullable error) {
+                if (error) {
+                    NSLog(@"Error starting screen capture: %@", error.localizedDescription);
+                } else {
+                    NSLog(@"Screen capture started successfully.");
+                }
+            }];
+        }
+
 }
+
+- (NSData *)processSampleBuffer:(CMSampleBufferRef)sampleBuffer {
+    // Convert sample buffer to NSData
+    // This is just a placeholder implementation
+    return [NSData data];
+}
+
+- (void)stopRecordScreen {
+    if (@available(iOS 11.0, *)) {
+        [self.screenRecorder stopCaptureWithHandler:^(NSError * _Nullable error) {
+            if (error) {
+                NSLog(@"Error stopping screen capture: %@", error.localizedDescription);
+            } else {
+                NSLog(@"Screen capture stopped successfully.");
+            }
+        }];
+    }
+}
+
+#pragma mark - FlutterStreamHandler
+
+- (FlutterError* _Nullable)onListenWithArguments:(id _Nullable)arguments eventSink:(FlutterEventSink)events {
+    self.eventSink = events;
+    return nil;
+}
+
+- (FlutterError* _Nullable)onCancelWithArguments:(id _Nullable)arguments {
+    self.eventSink = nil;
+    return nil;
+}
+
 #pragma mark - 接收来自extension的消息
 - (void)addUploaderEventMonitor {
     [self registerForNotificationsWithIdentifier:@"broadcastStarted"];

@@ -27,8 +27,13 @@ class ScreenRecording {
     return start;
   }
 
-  Future<String> get stopRecordScreen async {
+  Future<String> get videoPath async {
     final String path = await _channel.invokeMethod('stopRecordScreen');
     return path;
+  }
+
+  Future<bool> stopRecordScreen() async {
+    final bool stop = await _channel.invokeMethod('stopRecordScreen');
+    return stop;
   }
 }

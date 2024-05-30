@@ -1,8 +1,14 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:screen_recording/screen_recording.dart';
+import 'package:path_provider/path_provider.dart';
 
 void main() {
   runApp(const MyApp());
@@ -16,34 +22,58 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  String _platformVersion = 'Unknown';
+  static const EventChannel _eventChannel = EventChannel('screen_recording_stream');
+  StreamSubscription? _subscription;
+  List<Uint8List> _videoChunks = [];
+  late String _outputFilePath;
   final _screenRecordingPlugin = ScreenRecording();
+  bool isRecord = false;
+  double screenWidth = 0;
+  double screenHeight = 0;
 
   @override
   void initState() {
     super.initState();
-    initPlatformState();
+    _initOutputFilePath();
+    _subscription = _eventChannel.receiveBroadcastStream().listen((dynamic event) {
+      setState(() {
+        _videoChunks.add(base64Decode(event as String));
+        // Example: Print the length of received video chunks to console
+        print('Received video chunk, length: ${_videoChunks.last.length}');
+      });
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      setState(() {
+        screenWidth = 375;
+        screenHeight = 812;
+      });
+    });
   }
 
-  // Platform messages are asynchronous, so we initialize in an async method.
-  Future<void> initPlatformState() async {
-    String platformVersion;
-    // Platform messages may fail, so we use a try/catch PlatformException.
-    // We also handle the message potentially returning null.
-    try {
-      platformVersion = await _screenRecordingPlugin.platformVersion ?? 'Unknown platform version';
-    } on PlatformException {
-      platformVersion = 'Failed to get platform version.';
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _initOutputFilePath() async {
+    Directory appDocDir = await getApplicationDocumentsDirectory();
+    _outputFilePath = '${appDocDir.path}/recorded_video.mp4';
+  }
+
+  Future<void> _saveVideoToFile() async {
+    File outputFile = File(_outputFilePath);
+    if (!outputFile.existsSync()) {
+      outputFile.createSync(recursive: true);
     }
-
-    // If the widget was removed from the tree while the asynchronous platform
-    // message was in flight, we want to discard the reply rather than calling
-    // setState to update our non-existent appearance.
-    if (!mounted) return;
-
-    setState(() {
-      _platformVersion = platformVersion;
-    });
+    IOSink sink = outputFile.openWrite();
+    for (Uint8List chunk in _videoChunks) {
+      sink.add(chunk);
+    }
+    await sink.close();
+    if (kDebugMode) {
+      print('Video saved to: $_outputFilePath');
+    }
   }
 
   @override
@@ -54,7 +84,37 @@ class _MyAppState extends State<MyApp> {
           title: const Text('Plugin example app'),
         ),
         body: Center(
-          child: Text('Running on: $_platformVersion\n'),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              GestureDetector(
+                  onTap: () async {
+                    if (!isRecord) {
+                      var x = await _screenRecordingPlugin.startRecordScreen(
+                          "test", screenHeight.toInt(), screenWidth.toInt());
+                    } else {
+                      var x = await _screenRecordingPlugin.stopRecordScreen();
+                    }
+                    setState(() {
+                      isRecord = !isRecord;
+                    });
+                  },
+                  child: Text(isRecord ? "录屏中" : "开始录屏")),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text("是否开启边录边传"),
+                  CupertinoSwitch(value: true, onChanged: (value) {}),
+                ],
+              ),
+              Text('Received ${_videoChunks.length} video chunks'),
+              ElevatedButton(
+                onPressed: _saveVideoToFile,
+                child: const Text('Save Video'),
+              ),
+            ],
+          ),
         ),
       ),
     );
