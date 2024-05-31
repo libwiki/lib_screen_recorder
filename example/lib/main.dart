@@ -27,7 +27,6 @@ class _MyAppState extends State<MyApp> {
   List<Uint8List> _videoChunks = [];
   late String _outputFilePath;
   final _screenRecordingPlugin = ScreenRecording();
-  bool isRecord = false;
   double screenWidth = 0;
   double screenHeight = 0;
 
@@ -89,17 +88,15 @@ class _MyAppState extends State<MyApp> {
             children: <Widget>[
               GestureDetector(
                   onTap: () async {
-                    if (!isRecord) {
-                      var x = await _screenRecordingPlugin.startRecordScreen(
-                          "test", screenHeight.toInt(), screenWidth.toInt());
-                    } else {
-                      var x = await _screenRecordingPlugin.stopRecordScreen();
-                    }
-                    setState(() {
-                      isRecord = !isRecord;
-                    });
+                    await _screenRecordingPlugin.startRecordScreen("test", screenHeight.toInt(), screenWidth.toInt());
                   },
-                  child: Text(isRecord ? "录屏中" : "开始录屏")),
+                  child: const Text("开始录屏")),
+              const SizedBox(height: 20),
+              GestureDetector(
+                  onTap: () async {
+                    await _screenRecordingPlugin.stopRecordScreen();
+                  },
+                  child: const Text("停止录屏")),
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -108,7 +105,9 @@ class _MyAppState extends State<MyApp> {
                   CupertinoSwitch(value: true, onChanged: (value) {}),
                 ],
               ),
+              const SizedBox(height: 20),
               Text('Received ${_videoChunks.length} video chunks'),
+              const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _saveVideoToFile,
                 child: const Text('Save Video'),

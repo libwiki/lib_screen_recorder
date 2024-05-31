@@ -1,9 +1,9 @@
 #import "ScreenRecordingPlugin.h"
 #import <AVKit/AVKit.h>
 #import <AVFoundation/AVFoundation.h>
-
+#import <Photos/Photos.h>
 API_AVAILABLE(ios(10.0))
-@interface ScreenRecordingPlugin ()<RPBroadcastActivityViewControllerDelegate,RPBroadcastControllerDelegate>
+@interface ScreenRecordingPlugin ()<RPBroadcastActivityViewControllerDelegate,RPBroadcastControllerDelegate, AVCaptureVideoDataOutputSampleBufferDelegate>
 @property RPBroadcastController *broadcastController;
 @property NSTimer *timer;
 @property UIView *view;
@@ -13,21 +13,21 @@ API_AVAILABLE(ios(10.0))
 @property NSString *groupId;
 @property NSString *targetFileName;
 @property (nonatomic, strong) FlutterEventSink eventSink;
-@property (nonatomic, strong) RPScreenRecorder *screenRecorder;
 @property BOOL isInited;
+@property (nonatomic, assign) BOOL isRecording;
 @end
 
 static NSString * const ScreenHoleNotificationName = @"ScreenHoleNotificationName";
 void MyHoleNotificationCallback(CFNotificationCenterRef center,
-                                   void * observer,
-                                   CFStringRef name,
-                                   void const * object,
-                                   CFDictionaryRef userInfo) {
+                                void * observer,
+                                CFStringRef name,
+                                void const * object,
+                                CFDictionaryRef userInfo) {
     NSString *identifier = (__bridge NSString *)name;
     NSObject *sender = (__bridge NSObject *)observer;
     //NSDictionary *info = (__bridge NSDictionary *)userInfo;
     NSDictionary *info = CFBridgingRelease(userInfo);
-
+    
     NSDictionary *notiUserInfo = @{@"identifier":identifier};
     [[NSNotificationCenter defaultCenter] postNotificationName:ScreenHoleNotificationName
                                                         object:sender
@@ -36,42 +36,39 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 
 @implementation ScreenRecordingPlugin
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
-  FlutterMethodChannel* channel = [FlutterMethodChannel
-      methodChannelWithName:@"screen_recording"
-            binaryMessenger:[registrar messenger]];
-  ScreenRecordingPlugin* instance = [[ScreenRecordingPlugin alloc] init];
-  [registrar addMethodCallDelegate:instance channel:channel];
-
-  FlutterEventChannel* eventChannel = [FlutterEventChannel eventChannelWithName:@"screen_recording_stream" binaryMessenger:[registrar messenger]];
-  [eventChannel setStreamHandler:instance];
+    FlutterMethodChannel* channel = [FlutterMethodChannel
+                                     methodChannelWithName:@"screen_recording"
+                                     binaryMessenger:[registrar messenger]];
+    ScreenRecordingPlugin* instance = [[ScreenRecordingPlugin alloc] init];
+    [registrar addMethodCallDelegate:instance channel:channel];
+    
+    FlutterEventChannel* eventChannel = [FlutterEventChannel eventChannelWithName:@"screen_recording_stream" binaryMessenger:[registrar messenger]];
+    [eventChannel setStreamHandler:instance];
 }
 
 - (instancetype)init {
     self = [super init];
     if (self) {
-        self.screenRecorder = [RPScreenRecorder sharedRecorder];
+        self.isRecording = NO;
     }
     return self;
 }
 
-
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
-  if ([@"getPlatformVersion" isEqualToString:call.method]) {
-      result([@"iOS " stringByAppendingString:[[UIDevice currentDevice] systemVersion]]);
+    if ([@"getPlatformVersion" isEqualToString:call.method]) {
+        result([@"iOS " stringByAppendingString:[[UIDevice currentDevice] systemVersion]]);
     } else if ([@"startRecordScreen" isEqualToString:call.method]) {
-      if(self.isInited){
-        NSLog(@"has inited");
-      }else{
-        [self initParam];
-        self.isInited = YES;
-      }
-      [self startRecorScreen:call];
-       result(nil);
+        if(self.isInited){
+            NSLog(@"has inited");
+        }else{
+            [self initParam];
+            self.isInited = YES;
+        }
+        [self startRecorScreen:call];
     } else if ([@"stopRecordScreen" isEqualToString:call.method]) {
-      [self stopRecordScreen];
-       result(nil);
+        [self stopRecordScreen];
     }else {
-      result(FlutterMethodNotImplemented);
+        result(FlutterMethodNotImplemented);
     }
 }
 
@@ -79,26 +76,38 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     //获取主view
     UIViewController* viewController = [UIApplication sharedApplication].keyWindow.rootViewController;
     self.view = viewController.view;
-
+    
     NSString *bundleId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleIdentifier"];
     self.extensionBundleId = [bundleId stringByAppendingString:@".screencap"];
     self.groupId = [@"group." stringByAppendingString:bundleId];
-
+    
     //共享文件名字
-
+    
     NSURL *groupURL = [[NSFileManager defaultManager] containerURLForSecurityApplicationGroupIdentifier:self.groupId];
     self.fileURL = [groupURL URLByAppendingPathComponent:@"test.mp4"];
-
-    self.broadcastPickerView = [[RPSystemBroadcastPickerView alloc] initWithFrame:(CGRect){0, 0, 100, 100}];
+    
+    if (@available(iOS 12.0, *)) {
+        self.broadcastPickerView = [[RPSystemBroadcastPickerView alloc] initWithFrame:(CGRect){0, 0, 100, 100}];
+    } else {
+        // Fallback on earlier versions
+    }
     if(@available(iOS 12.2, *)) {
-      self.broadcastPickerView.preferredExtension = self.extensionBundleId;
+        self.broadcastPickerView.preferredExtension = self.extensionBundleId;
     }
     [self.view addSubview:_broadcastPickerView];
-    self.broadcastPickerView.hidden = YES;
-    self.broadcastPickerView.showsMicrophoneButton = YES;
-
+    if (@available(iOS 12.0, *)) {
+        self.broadcastPickerView.hidden = YES;
+    } else {
+        // Fallback on earlier versions
+    }
+    if (@available(iOS 12.0, *)) {
+        self.broadcastPickerView.showsMicrophoneButton = YES;
+    } else {
+        // Fallback on earlier versions
+    }
+    
     [self addUploaderEventMonitor];
-
+    
     NSLog(@"init success");
 }
 
@@ -106,43 +115,47 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     self.targetFileName = call.arguments[@"name"];
     NSLog(@"targetFileName:%@",self.targetFileName);
     if (@available(iOS 12.0, *)) {
-
-      for (UIView *view in self.broadcastPickerView.subviews) {
-          if ([view isKindOfClass:[UIButton class]]) {
-              if (@available(iOS 13, *)) {
-                  [(UIButton *)view sendActionsForControlEvents:UIControlEventTouchUpInside];
-              } else {
-                  [(UIButton *)view sendActionsForControlEvents:UIControlEventTouchDown];
-              }
-          }
-      }
+        
+        for (UIView *view in self.broadcastPickerView.subviews) {
+            if ([view isKindOfClass:[UIButton class]]) {
+                if (@available(iOS 13, *)) {
+                    [(UIButton *)view sendActionsForControlEvents:UIControlEventTouchUpInside];
+                } else {
+                    [(UIButton *)view sendActionsForControlEvents:UIControlEventTouchDown];
+                }
+            }
+        }
     } else {
         // Fallback on earlier versions
     }
+    [self startFetchingSharedContainerData];
+}
 
-    if (@available(iOS 11.0, *)) {
-            [self.screenRecorder startCaptureWithHandler:^(CMSampleBufferRef sampleBuffer, RPSampleBufferType bufferType, NSError * _Nullable error) {
-                if (error) {
-                    NSLog(@"Error capturing screen: %@", error.localizedDescription);
-                    return;
-                }
+- (void)startFetchingSharedContainerData {
+    self.timer = [NSTimer scheduledTimerWithTimeInterval:1.0
+                                                  target:self
+                                                selector:@selector(fetchSharedContainerData)
+                                                userInfo:nil
+                                                 repeats:YES];
+}
 
-                if (bufferType == RPSampleBufferTypeVideo) {
-                    if (self.eventSink) {
-                        // Process video sample buffer and send it to Flutter
-                        NSData *videoData = [self processSampleBuffer:sampleBuffer];
-                        self.eventSink([videoData base64EncodedStringWithOptions:0]);
-                    }
-                }
-            } completionHandler:^(NSError * _Nullable error) {
-                if (error) {
-                    NSLog(@"Error starting screen capture: %@", error.localizedDescription);
-                } else {
-                    NSLog(@"Screen capture started successfully.");
-                }
-            }];
+- (void)fetchSharedContainerData {
+    NSUserDefaults *userDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"group.com.your.app"];
+    NSData *videoData = [userDefaults objectForKey:@"videoData"];
+    if (videoData) {
+        // Process the video data and send it to Flutter
+        if (self.eventSink) {
+            self.eventSink([videoData base64EncodedStringWithOptions:0]);
         }
+    }
+}
 
+- (void)captureOutput:(AVCaptureOutput *)output didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer fromConnection:(AVCaptureConnection *)connection {
+    if (self.eventSink) {
+        // Process video sample buffer and send it to Flutter
+        NSData *videoData = [self processSampleBuffer:sampleBuffer];
+        self.eventSink([videoData base64EncodedStringWithOptions:0]);
+    }
 }
 
 - (NSData *)processSampleBuffer:(CMSampleBufferRef)sampleBuffer {
@@ -151,16 +164,47 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     return [NSData data];
 }
 
+- (void)saveVideoWithUrl:(NSURL *)url {
+    PHPhotoLibrary *photoLibrary = [PHPhotoLibrary sharedPhotoLibrary];
+    [photoLibrary performChanges:^{
+        [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:url];
+
+    } completionHandler:^(BOOL success, NSError * _Nullable error) {
+        if (success) {
+            NSLog(@"已将视频保存至相册");
+        } else {
+            NSLog(@"未能保存视频到相册");
+        }
+    }];
+}
+
 - (void)stopRecordScreen {
-    if (@available(iOS 11.0, *)) {
-        [self.screenRecorder stopCaptureWithHandler:^(NSError * _Nullable error) {
-            if (error) {
-                NSLog(@"Error stopping screen capture: %@", error.localizedDescription);
+    if ([RPScreenRecorder sharedRecorder].recording) {
+
+            if (@available(iOS 14.0, *)) {
+                __weak typeof(self) weakSelf = self;
+                NSString *cachesDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory,NSUserDomainMask,YES) firstObject];
+                NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@/test.mp4",cachesDir]];
+                [[RPScreenRecorder sharedRecorder] stopRecordingWithOutputURL:url  completionHandler:^(NSError * _Nullable error) {
+                    NSLog(@"stopRecordingWithOutputURL:%@",url);
+                    [weakSelf saveVideoWithUrl:url];
+
+                }];
             } else {
-                NSLog(@"Screen capture stopped successfully.");
+                [[RPScreenRecorder sharedRecorder] stopRecordingWithHandler:^(RPPreviewViewController * _Nullable previewViewController, NSError * _Nullable error) {
+                    NSLog(@"stopRecordingWithHandler");
+                    if (!error) {
+                        previewViewController.previewControllerDelegate = self;
+                        UIViewController* viewController = [UIApplication sharedApplication].keyWindow.rootViewController;
+                        [viewController presentViewController:previewViewController animated:YES completion:nil];
+                    }
+                }];
             }
-        }];
-    }
+
+        }
+    [self.timer invalidate];
+    self.timer = nil;
+    NSLog(@"Stopped fetching shared container data");
 }
 
 #pragma mark - FlutterStreamHandler
@@ -183,13 +227,13 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 }
 
 - (void)broadcastInfo:(NSNotification *)noti {
-
+    
     NSDictionary *userInfo = noti.userInfo;
     NSString *identifier = userInfo[@"identifier"];
     FlutterViewController *controller = (FlutterViewController*)[UIApplication sharedApplication].keyWindow.rootViewController;
     FlutterMethodChannel *methodChannel = [FlutterMethodChannel methodChannelWithName:@"screen_recording"
                                                                       binaryMessenger: controller.binaryMessenger];
-
+    
     if ([identifier isEqualToString:@"broadcastStarted"]) {
         NSLog(@"开始录屏");
         [methodChannel invokeMethod:@"start" arguments:nil];
@@ -201,19 +245,19 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         NSLog(@"%@", self.targetFileName);
         [data writeToURL:[NSURL fileURLWithPath:self.targetFileName] atomically:NO];
         NSLog(@"获取的总长度%lu",data.length);
-
+        
         [methodChannel invokeMethod:@"end" arguments:nil];
-
-
+        
+        
     }
 }
 
 #pragma mark - 移除Observer
 - (void)removeUploaderEventMonitor {
-
+    
     [self unregisterForNotificationsWithIdentifier:@"broadcastFinished"];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:ScreenHoleNotificationName object:nil];
-
+    
 }
 #pragma mark - 宿主与extension之间的通知
 - (void)registerForNotificationsWithIdentifier:(nullable NSString *)identifier {
