@@ -178,30 +178,46 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     }];
 }
 
+// 想要停止系统录屏，您需要使用特定的API来执行此操作。在iOS中，系统录屏是由用户手动启动并控制的，因此您无法直接停止系统录屏，而只能提供给用户一个停止录屏的选项。您可以通过调用系统提供的停止录屏的接口来实现这一点。
 - (void)stopRecordScreen {
-    if ([RPScreenRecorder sharedRecorder].recording) {
-
-            if (@available(iOS 14.0, *)) {
-                __weak typeof(self) weakSelf = self;
-                NSString *cachesDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory,NSUserDomainMask,YES) firstObject];
-                NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@/test.mp4",cachesDir]];
-                [[RPScreenRecorder sharedRecorder] stopRecordingWithOutputURL:url  completionHandler:^(NSError * _Nullable error) {
-                    NSLog(@"stopRecordingWithOutputURL:%@",url);
-                    [weakSelf saveVideoWithUrl:url];
-
-                }];
-            } else {
-                [[RPScreenRecorder sharedRecorder] stopRecordingWithHandler:^(RPPreviewViewController * _Nullable previewViewController, NSError * _Nullable error) {
-                    NSLog(@"stopRecordingWithHandler");
-                    if (!error) {
-                        previewViewController.previewControllerDelegate = self;
-                        UIViewController* viewController = [UIApplication sharedApplication].keyWindow.rootViewController;
-                        [viewController presentViewController:previewViewController animated:YES completion:nil];
-                    }
-                }];
+    // 检查ReplayKit的录制状态
+//    if ([RPScreenRecorder sharedRecorder].recording) {
+//
+//            if (@available(iOS 14.0, *)) {
+//                __weak typeof(self) weakSelf = self;
+//                NSString *cachesDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory,NSUserDomainMask,YES) firstObject];
+//                NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@/test.mp4",cachesDir]];
+//                [[RPScreenRecorder sharedRecorder] stopRecordingWithOutputURL:url  completionHandler:^(NSError * _Nullable error) {
+//                    NSLog(@"stopRecordingWithOutputURL:%@",url);
+//                    [weakSelf saveVideoWithUrl:url];
+//
+//                }];
+//            } else {
+//                [[RPScreenRecorder sharedRecorder] stopRecordingWithHandler:^(RPPreviewViewController * _Nullable previewViewController, NSError * _Nullable error) {
+//                    NSLog(@"stopRecordingWithHandler");
+//                    if (!error) {
+//                        previewViewController.previewControllerDelegate = self;
+//                        UIViewController* viewController = [UIApplication sharedApplication].keyWindow.rootViewController;
+//                        [viewController presentViewController:previewViewController animated:YES completion:nil];
+//                    }
+//                }];
+//            }
+//
+//        }
+    if (@available(iOS 12.0, *)) {
+        
+        for (UIView *view in self.broadcastPickerView.subviews) {
+            if ([view isKindOfClass:[UIButton class]]) {
+                if (@available(iOS 13, *)) {
+                    [(UIButton *)view sendActionsForControlEvents:UIControlEventTouchUpInside];
+                } else {
+                    [(UIButton *)view sendActionsForControlEvents:UIControlEventTouchDown];
+                }
             }
-
         }
+    } else {
+        // Fallback on earlier versions
+    }
     [self.timer invalidate];
     self.timer = nil;
     NSLog(@"Stopped fetching shared container data");
