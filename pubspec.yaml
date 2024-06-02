@@ -36,7 +36,7 @@ flutter:
   plugin:
     platforms:
       android:
-        package: com.peersafe.screen_recordingample.screen_recording
+        package: com.peersafe.screen_recording
         pluginClass: ScreenRecordingPlugin
       ios:
         pluginClass: ScreenRecordingPlugin
