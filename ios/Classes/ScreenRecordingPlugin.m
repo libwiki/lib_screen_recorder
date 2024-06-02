@@ -140,7 +140,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 }
 
 - (void)fetchSharedContainerData {
-    NSUserDefaults *userDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"group.com.your.app"];
+    NSUserDefaults *userDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"group.com.recordscreen.app"];
     NSData *videoData = [userDefaults objectForKey:@"videoData"];
     if (videoData) {
         // Process the video data and send it to Flutter
@@ -216,7 +216,6 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
             }
         }
     } else {
-        // Fallback on earlier versions
     }
     [self.timer invalidate];
     self.timer = nil;

@@ -85,7 +85,7 @@
     static NSString *replaysPath;
     if (!replaysPath) {
         NSFileManager *fileManager = [NSFileManager defaultManager];
-        NSURL *documentRootPath = [fileManager containerURLForSecurityApplicationGroupIdentifier:@"group.com.ask.answer.live"];
+        NSURL *documentRootPath = [fileManager containerURLForSecurityApplicationGroupIdentifier:@"group.com.recordscreen.app"];
         replaysPath = [documentRootPath.path stringByAppendingPathComponent:@"Replays"];
         if (![fileManager fileExistsAtPath:replaysPath]) {
             NSError *error_createPath = nil;
@@ -104,6 +104,22 @@
 
 - (void)broadcastStartedWithSetupInfo:(NSDictionary<NSString *,NSObject *> *)setupInfo {
     NSLog(@"广播上传扩展开始");
+        NSError *error = nil;
+        self.assetWriter = [[AVAssetWriter alloc] initWithURL:[self getFilePathUrl] fileType:AVFileTypeMPEG4 error:&error];
+        NSAssert(!error, @"AssetWriter 初始化失败: %@", error);
+
+        CGSize screenSize = [UIScreen mainScreen].bounds.size;
+        CGFloat screenScale = [UIScreen mainScreen].scale;
+        NSDictionary *videoOutputSettings = @{
+            AVVideoCodecKey: AVVideoCodecTypeH264,
+            AVVideoWidthKey: @(screenSize.width * screenScale),
+            AVVideoHeightKey: @(screenSize.height * screenScale)
+        };
+
+        self.videoInput = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo outputSettings:videoOutputSettings];
+        self.videoInput.expectsMediaDataInRealTime = YES;
+        
+        [self.assetWriter addInput:self.videoInput];
 }
 
 - (void)broadcastPaused {
@@ -116,25 +132,25 @@
 
 - (void)broadcastFinished {
     NSLog(@"广播上传扩展停止");
+        [self.assetWriter finishWritingWithCompletionHandler:^{
+            NSLog(@"视频写入完成");
+            // 将视频数据保存到共享容器
+            NSURL *fileURL = self.assetWriter.outputURL;
+            NSData *videoData = [NSData dataWithContentsOfURL:fileURL];
+            [self saveDataToSharedContainer:videoData];
+        }];
 }
 
 - (void)processSampleBuffer:(CMSampleBufferRef)sampleBuffer withType:(RPSampleBufferType)sampleBufferType {
     
-    switch (sampleBufferType) {
-        case RPSampleBufferTypeVideo:
-            // Handle video sample buffer
-            [self handleVideoSampleBuffer:sampleBuffer];
-            break;
-        case RPSampleBufferTypeAudioApp:
-            // Handle audio sample buffer for app audio
-            break;
-        case RPSampleBufferTypeAudioMic:
-            // Handle audio sample buffer for mic audio
-            break;
-            
-        default:
-            break;
-    }
+    if (self.assetWriter.status != AVAssetWriterStatusWriting && sampleBufferType == RPSampleBufferTypeVideo) {
+            [self.assetWriter startWriting];
+            [self.assetWriter startSessionAtSourceTime:CMSampleBufferGetPresentationTimeStamp(sampleBuffer)];
+        }
+
+        if (sampleBufferType == RPSampleBufferTypeVideo && self.videoInput.readyForMoreMediaData) {
+            [self.videoInput appendSampleBuffer:sampleBuffer];
+        }
 }
 
 - (void)handleVideoSampleBuffer:(CMSampleBufferRef)sampleBuffer {
@@ -150,8 +166,8 @@
 }
 
 - (void)saveDataToSharedContainer:(NSData *)data {
-    NSUserDefaults *userDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"group.com.your.app"];
-    [userDefaults setObject:data forKey:@"videoData"];
-    [userDefaults synchronize];
+    NSUserDefaults *userDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"group.com.recordscreen.app"];
+       [userDefaults setObject:data forKey:@"videoData"];
+       [userDefaults synchronize];
 }
 @end
