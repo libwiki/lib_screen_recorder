@@ -165,8 +165,8 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 
 
 - (void)startRecorScreen:(FlutterMethodCall*)call {
-    // 这个name就是自定义保存路径的参数
-    self.targetFileName = call.arguments[@"name"];
+    // 这个path就是自定义保存路径的参数
+    self.targetFileName = call.arguments[@"path"];
     NSLog(@"targetFileName:%@",self.targetFileName);
     // 获取帧率参数，默认值为 25
     self.frameRate = call.arguments[@"frameRate"] ?: @(25);

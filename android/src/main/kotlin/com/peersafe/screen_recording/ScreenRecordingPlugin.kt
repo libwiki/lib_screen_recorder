@@ -174,7 +174,12 @@ class ScreenRecordingPlugin(
 
         val permissionIntent = mProjectionManager?.createScreenCaptureIntent()
 //        ActivityCompat.startActivityForResult((registrar.context().applicationContext as FlutterApplication).currentActivity, permissionIntent!!, SCREEN_RECORD_REQUEST_CODE, null)
-        ActivityCompat.startActivityForResult(registrar.activity(), permissionIntent!!, SCREEN_RECORD_REQUEST_CODE, null)
+        registrar.activity()?.let {
+            ActivityCompat.startActivityForResult(it, permissionIntent!!, SCREEN_RECORD_REQUEST_CODE, null)
+        } ?: run {
+            // 处理 Activity 为 null 的情况
+            _result.error("NoActivity", "No activity to startForResult", null)
+        }
 
     }
 
