@@ -28,11 +28,19 @@ class _MyAppState extends State<MyApp> {
   late String _outputFilePath;
   final _screenRecordingPlugin = ScreenRecording();
   final TextEditingController _pathController = TextEditingController();
+
+  // 帧率
+  final TextEditingController _frameController = TextEditingController(text: "30");
+
+  // 码率
+  final TextEditingController _bitController = TextEditingController(text: "10000000");
   static const platform = MethodChannel('screen_recording');
   String _videoPath = '未录制视频';
   String _md5Hash = '未生成MD5';
+
   // 帧率默认值
   String _frameRate = "30";
+
   // 码率默认值
   String _bitRate = "10000000";
 
@@ -98,6 +106,7 @@ class _MyAppState extends State<MyApp> {
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               TextField(
+                controller: _frameController,
                 onChanged: (value) {
                   // 更新帧率的值
                   setState(() {
@@ -110,6 +119,7 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               TextField(
+                controller: _bitController,
                 onChanged: (value) {
                   // 更新码率的值
                   setState(() {
@@ -132,7 +142,7 @@ class _MyAppState extends State<MyApp> {
               ),
               GestureDetector(
                   onTap: () async {
-                    await _screenRecordingPlugin.startRecordScreen(path: _pathController.text);
+                    _startRecording();
                   },
                   child: const Text("开始录屏")),
               const SizedBox(height: 20),
@@ -161,6 +171,15 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
     );
+  }
+
+  Future<void> _startRecording() async {
+    try {
+      await _screenRecordingPlugin.startRecordScreen(
+          path: _pathController.text, frameRate: int.parse(_frameRate), bitRate: int.parse(_bitRate));
+    } on PlatformException catch (e) {
+      print('${e.message}');
+    }
   }
 
   Future<void> _chooseSavePath() async {

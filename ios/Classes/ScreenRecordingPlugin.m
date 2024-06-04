@@ -19,7 +19,9 @@ API_AVAILABLE(ios(10.0))
 @property BOOL isInited;
 @property (nonatomic, assign) BOOL isRecording;
 @property (nonatomic, copy) FlutterResult result;
-
+// 视频的帧率
+@property (nonatomic, strong) NSNumber *frameRate;
+@property (nonatomic, strong) NSNumber *bitRate;
 @end
 
 static NSString * const ScreenHoleNotificationName = @"ScreenHoleNotificationName";
@@ -159,12 +161,12 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     self.targetFileName = call.arguments[@"name"];
     NSLog(@"targetFileName:%@",self.targetFileName);
     // 获取帧率参数，默认值为 25
-        NSNumber *frameRate = call.arguments[@"frameRate"] ?: @(25);
-        NSLog(@"帧率：%@", frameRate);
-        
-        // 获取码率参数，默认值为 7500000
-        NSNumber *bitRate = call.arguments[@"bitRate"] ?: @(7500000);
-        NSLog(@"码率：%@", bitRate);
+    self.frameRate = call.arguments[@"frameRate"] ?: @(25);
+    NSLog(@"帧率：%@", self.frameRate);
+    
+    // 获取码率参数，默认值为 7500000
+    self.bitRate = call.arguments[@"bitRate"] ?: @(7500000);
+    NSLog(@"码率：%@", self.bitRate);
     if (@available(iOS 12.0, *)) {
         
         for (UIView *view in self.broadcastPickerView.subviews) {
@@ -262,10 +264,67 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     } else {
         [self saveVideoWithUrl:self.fileURL];
     }
+    // 处理视频数据，设置帧率和码率等参数
+    NSData *processedVideoData = [self processVideoData:[NSData dataWithContentsOfURL:self.fileURL]];
+    
+    // 将处理后的视频数据写入临时文件
+    NSString *tempFilePath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"processedVideo.mp4"];
+    [processedVideoData writeToFile:tempFilePath atomically:YES];
     // 将视频路径和 MD5 码一起返回给 Flutter
     if (self.result) {
-        self.result(@{@"path": [self.fileURL path], @"md5": md5});
+        self.result(@{@"path": tempFilePath, @"md5": md5});
         self.result = nil;
+    }
+}
+
+# pragma mark - 对视频进行处理，设置帧率码率，再回传给flutter
+- (NSData *)processVideoData:(NSData *)videoData {
+    AVAsset *asset = [AVAsset assetWithURL:self.fileURL];
+    AVAssetTrack *videoTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
+    
+    // 设置视频属性
+    AVMutableComposition *composition = [AVMutableComposition composition];
+    AVMutableCompositionTrack *compositionVideoTrack = [composition addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:kCMPersistentTrackID_Invalid];
+    NSError *error = nil;
+    BOOL success = [compositionVideoTrack insertTimeRange:CMTimeRangeMake(kCMTimeZero, asset.duration)
+                                                  ofTrack:videoTrack
+                                                   atTime:kCMTimeZero
+                                                    error:&error];
+    if (!success) {
+        NSLog(@"Error inserting video track: %@", error);
+        return nil;
+    }
+    
+    // 设置视频的帧率和码率等参数
+    NSDictionary *videoCompressionProperties = @{
+        AVVideoAverageBitRateKey: self.bitRate, // 码率
+        AVVideoExpectedSourceFrameRateKey: self.frameRate // 帧率
+    };
+    
+    NSDictionary *videoSettings = @{
+        AVVideoCompressionPropertiesKey: videoCompressionProperties
+    };
+    
+    AVAssetExportSession *exportSession = [[AVAssetExportSession alloc] initWithAsset:composition
+                                                                           presetName:AVAssetExportPresetPassthrough];
+    exportSession.outputFileType = AVFileTypeMPEG4;
+    NSString *processedFilePath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"processedVideo.mp4"];
+    exportSession.outputURL = [NSURL fileURLWithPath:processedFilePath];
+    exportSession.videoComposition = videoSettings;
+    
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+    [exportSession exportAsynchronouslyWithCompletionHandler:^{
+        dispatch_semaphore_signal(semaphore);
+    }];
+    
+    dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+    
+    if (exportSession.status == AVAssetExportSessionStatusCompleted) {
+        NSData *processedVideoData = [NSData dataWithContentsOfFile:processedFilePath];
+        return processedVideoData;
+    } else {
+        NSLog(@"Video processing failed with error: %@", exportSession.error);
+        return nil;
     }
 }
 
