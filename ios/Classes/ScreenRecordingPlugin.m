@@ -2,8 +2,10 @@
 #import <AVKit/AVKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <Photos/Photos.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+
 API_AVAILABLE(ios(10.0))
-@interface ScreenRecordingPlugin ()<RPBroadcastActivityViewControllerDelegate,RPBroadcastControllerDelegate, AVCaptureVideoDataOutputSampleBufferDelegate>
+@interface ScreenRecordingPlugin ()<RPBroadcastActivityViewControllerDelegate,RPBroadcastControllerDelegate, AVCaptureVideoDataOutputSampleBufferDelegate, UIDocumentPickerDelegate>
 @property RPBroadcastController *broadcastController;
 @property NSTimer *timer;
 @property UIView *view;
@@ -15,6 +17,8 @@ API_AVAILABLE(ios(10.0))
 @property (nonatomic, strong) FlutterEventSink eventSink;
 @property BOOL isInited;
 @property (nonatomic, assign) BOOL isRecording;
+@property (nonatomic, copy) FlutterResult result;
+
 @end
 
 static NSString * const ScreenHoleNotificationName = @"ScreenHoleNotificationName";
@@ -67,6 +71,8 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         [self startRecorScreen:call];
     } else if ([@"stopRecordScreen" isEqualToString:call.method]) {
         [self stopRecordScreen];
+    }else if ([@"chooseSavePath" isEqualToString:call.method]) {
+    [self chooseSavePathWithResult:result];
     }else {
         result(FlutterMethodNotImplemented);
     }
@@ -111,7 +117,31 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     NSLog(@"init success");
 }
 
+- (void)chooseSavePathWithResult:(FlutterResult)result {
+    if (@available(iOS 14.0, *)) {
+        UIDocumentPickerViewController *documentPicker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder]];
+        documentPicker.delegate = self;
+        documentPicker.directoryURL = [NSURL URLWithString:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents"]];
+        documentPicker.modalPresentationStyle = UIModalPresentationFormSheet;
+
+        UIViewController *rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
+        [rootViewController presentViewController:documentPicker animated:YES completion:nil];
+
+        self.result = result;
+    } else {
+        NSLog(@"选择文件夹在此 iOS 版本不可用。");
+//        result(FlutterError(code: "UNAVAILABLE", message: "Choosing folder is unavailable on this iOS version.", details: nil));
+    }
+}
+
+# pragma mark - 用户选择完文件夹地址后，回传给flutter
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    NSURL *pickedURL = [urls firstObject];
+    self.result([pickedURL path]);
+}
+
 - (void)startRecorScreen:(FlutterMethodCall*)call {
+    // 这个name就是自定义保存路径的参数
     self.targetFileName = call.arguments[@"name"];
     NSLog(@"targetFileName:%@",self.targetFileName);
     if (@available(iOS 12.0, *)) {
@@ -220,6 +250,13 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     [self.timer invalidate];
     self.timer = nil;
     NSLog(@"Stopped fetching shared container data");
+    if (self.targetFileName) {
+            NSData *data = [[NSFileManager defaultManager] contentsAtPath:[self.fileURL path]];
+            [data writeToFile:self.targetFileName atomically:YES];
+            NSLog(@"Video saved to custom path: %@", self.targetFileName);
+        } else {
+            [self saveVideoWithUrl:self.fileURL];
+        }
 }
 
 #pragma mark - FlutterStreamHandler

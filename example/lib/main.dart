@@ -29,6 +29,8 @@ class _MyAppState extends State<MyApp> {
   final _screenRecordingPlugin = ScreenRecording();
   double screenWidth = 0;
   double screenHeight = 0;
+  final TextEditingController _pathController = TextEditingController();
+  static const platform = MethodChannel('screen_recording');
 
   @override
   void initState() {
@@ -86,6 +88,15 @@ class _MyAppState extends State<MyApp> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
+              TextField(
+                controller: _pathController,
+                decoration: InputDecoration(labelText: 'Custom Save Path (optional)'),
+              ),
+              SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _chooseSavePath,
+                child: Text('Choose Save Path'),
+              ),
               GestureDetector(
                   onTap: () async {
                     await _screenRecordingPlugin.startRecordScreen("test", screenHeight.toInt(), screenWidth.toInt());
@@ -117,5 +128,14 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
     );
+  }
+
+  Future<void> _chooseSavePath() async {
+    try {
+      final String result = await platform.invokeMethod('chooseSavePath');
+      _pathController.text = result;
+    } on PlatformException catch (e) {
+      print('${e.message}');
+    }
   }
 }
