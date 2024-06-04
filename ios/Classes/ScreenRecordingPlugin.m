@@ -77,6 +77,8 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         [self stopRecordScreen];
     }else if ([@"chooseSavePath" isEqualToString:call.method]) {
         [self chooseSavePathWithResult:result];
+    }else if ([@"queryMd5" isEqualToString:call.method]) {
+        [self queryMd5: call];
     }else {
         result(FlutterMethodNotImplemented);
     }
@@ -136,6 +138,12 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         NSLog(@"选择文件夹在此 iOS 版本不可用。");
         //        result(FlutterError(code: "UNAVAILABLE", message: "Choosing folder is unavailable on this iOS version.", details: nil));
     }
+}
+
+- (NSString *)queryMd5:(FlutterMethodCall *)call {
+    NSString *path = call.arguments[@"path"];
+    NSData *videoData = [NSData dataWithContentsOfFile:path];
+    return [self MD5ForData:videoData];
 }
 
 # pragma mark - 用户选择完文件夹地址后，回传给flutter

@@ -33,6 +33,13 @@ class ScreenRecording {
     return path;
   }
 
+  // 发起查询视频文件md5的请求
+  // 参数: 文件的地址
+  Future<String> queryMd5(String path) async {
+    final String md5 = await _channel.invokeMethod('queryMd5', {"path": path});
+    return md5;
+  }
+
   Future<Map<dynamic, dynamic>> stopRecordScreen() async {
     final Map<dynamic, dynamic> results = await _channel.invokeMethod('stopRecordScreen');
     return results;
