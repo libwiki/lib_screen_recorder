@@ -31,6 +31,8 @@ class _MyAppState extends State<MyApp> {
   double screenHeight = 0;
   final TextEditingController _pathController = TextEditingController();
   static const platform = MethodChannel('screen_recording');
+  String _videoPath = '未录制视频';
+  String _md5Hash = '未生成MD5';
 
   @override
   void initState() {
@@ -88,6 +90,17 @@ class _MyAppState extends State<MyApp> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
+              Text('视频文件路径:'),
+              Text(
+                _videoPath,
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 20),
+              Text('视频文件 MD5:'),
+              Text(
+                _md5Hash,
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               TextField(
                 controller: _pathController,
                 decoration: InputDecoration(labelText: 'Custom Save Path (optional)'),
@@ -105,7 +118,7 @@ class _MyAppState extends State<MyApp> {
               const SizedBox(height: 20),
               GestureDetector(
                   onTap: () async {
-                    await _screenRecordingPlugin.stopRecordScreen();
+                    _stopRecording();
                   },
                   child: const Text("停止录屏")),
               const SizedBox(height: 20),
@@ -136,6 +149,18 @@ class _MyAppState extends State<MyApp> {
       _pathController.text = result;
     } on PlatformException catch (e) {
       print('${e.message}');
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    try {
+      final result = await _screenRecordingPlugin.stopRecordScreen();
+      setState(() {
+        _videoPath = result['path'];
+        _md5Hash = result['md5'];
+      });
+    } on PlatformException catch (e) {
+      print("Failed to stop recording: '${e.message}'.");
     }
   }
 }

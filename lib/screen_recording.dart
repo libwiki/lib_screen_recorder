@@ -32,8 +32,8 @@ class ScreenRecording {
     return path;
   }
 
-  Future<bool> stopRecordScreen() async {
-    final bool stop = await _channel.invokeMethod('stopRecordScreen');
-    return stop;
+  Future<Map<String, dynamic>> stopRecordScreen() async {
+    final Map<String, dynamic> results = await _channel.invokeMethod('stopRecordScreen');
+    return results;
   }
 }

@@ -3,6 +3,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Photos/Photos.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <CommonCrypto/CommonDigest.h>
 
 API_AVAILABLE(ios(10.0))
 @interface ScreenRecordingPlugin ()<RPBroadcastActivityViewControllerDelegate,RPBroadcastControllerDelegate, AVCaptureVideoDataOutputSampleBufferDelegate, UIDocumentPickerDelegate>
@@ -72,7 +73,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     } else if ([@"stopRecordScreen" isEqualToString:call.method]) {
         [self stopRecordScreen];
     }else if ([@"chooseSavePath" isEqualToString:call.method]) {
-    [self chooseSavePathWithResult:result];
+        [self chooseSavePathWithResult:result];
     }else {
         result(FlutterMethodNotImplemented);
     }
@@ -123,14 +124,14 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         documentPicker.delegate = self;
         documentPicker.directoryURL = [NSURL URLWithString:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents"]];
         documentPicker.modalPresentationStyle = UIModalPresentationFormSheet;
-
+        
         UIViewController *rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
         [rootViewController presentViewController:documentPicker animated:YES completion:nil];
-
+        
         self.result = result;
     } else {
         NSLog(@"选择文件夹在此 iOS 版本不可用。");
-//        result(FlutterError(code: "UNAVAILABLE", message: "Choosing folder is unavailable on this iOS version.", details: nil));
+        //        result(FlutterError(code: "UNAVAILABLE", message: "Choosing folder is unavailable on this iOS version.", details: nil));
     }
 }
 
@@ -139,6 +140,18 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     NSURL *pickedURL = [urls firstObject];
     self.result([pickedURL path]);
 }
+
+# pragma mark - 生成md5
+- (NSString *)MD5ForData:(NSData *)data {
+    unsigned char result[CC_MD5_DIGEST_LENGTH];
+    CC_MD5(data.bytes, (CC_LONG)data.length, result);
+    NSMutableString *hash = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
+    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
+        [hash appendFormat:@"%02x", result[i]];
+    }
+    return hash;
+}
+
 
 - (void)startRecorScreen:(FlutterMethodCall*)call {
     // 这个name就是自定义保存路径的参数
@@ -180,11 +193,14 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     }
 }
 
+// 处理视频帧并生成MD5
 - (void)captureOutput:(AVCaptureOutput *)output didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer fromConnection:(AVCaptureConnection *)connection {
     if (self.eventSink) {
-        // Process video sample buffer and send it to Flutter
         NSData *videoData = [self processSampleBuffer:sampleBuffer];
         self.eventSink([videoData base64EncodedStringWithOptions:0]);
+        // 生成 MD5 码
+        NSString *md5 = [self MD5ForData:videoData];
+        NSLog(@"MD5: %@", md5);
     }
 }
 
@@ -198,7 +214,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     PHPhotoLibrary *photoLibrary = [PHPhotoLibrary sharedPhotoLibrary];
     [photoLibrary performChanges:^{
         [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:url];
-
+        
     } completionHandler:^(BOOL success, NSError * _Nullable error) {
         if (success) {
             NSLog(@"已将视频保存至相册");
@@ -209,31 +225,8 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 }
 
 // 想要停止系统录屏，您需要使用特定的API来执行此操作。在iOS中，系统录屏是由用户手动启动并控制的，因此您无法直接停止系统录屏，而只能提供给用户一个停止录屏的选项。您可以通过调用系统提供的停止录屏的接口来实现这一点。
+// 在录制完成时，生成视频文件的 MD5 码，并将它与视频路径一起返回
 - (void)stopRecordScreen {
-    // 检查ReplayKit的录制状态
-//    if ([RPScreenRecorder sharedRecorder].recording) {
-//
-//            if (@available(iOS 14.0, *)) {
-//                __weak typeof(self) weakSelf = self;
-//                NSString *cachesDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory,NSUserDomainMask,YES) firstObject];
-//                NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@/test.mp4",cachesDir]];
-//                [[RPScreenRecorder sharedRecorder] stopRecordingWithOutputURL:url  completionHandler:^(NSError * _Nullable error) {
-//                    NSLog(@"stopRecordingWithOutputURL:%@",url);
-//                    [weakSelf saveVideoWithUrl:url];
-//
-//                }];
-//            } else {
-//                [[RPScreenRecorder sharedRecorder] stopRecordingWithHandler:^(RPPreviewViewController * _Nullable previewViewController, NSError * _Nullable error) {
-//                    NSLog(@"stopRecordingWithHandler");
-//                    if (!error) {
-//                        previewViewController.previewControllerDelegate = self;
-//                        UIViewController* viewController = [UIApplication sharedApplication].keyWindow.rootViewController;
-//                        [viewController presentViewController:previewViewController animated:YES completion:nil];
-//                    }
-//                }];
-//            }
-//
-//        }
     if (@available(iOS 12.0, *)) {
         
         for (UIView *view in self.broadcastPickerView.subviews) {
@@ -250,13 +243,22 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     [self.timer invalidate];
     self.timer = nil;
     NSLog(@"Stopped fetching shared container data");
+    // 读取视频文件数据并生成 MD5 码
+    NSData *videoData = [NSData dataWithContentsOfURL:self.fileURL];
+    NSString *md5 = [self MD5ForData:videoData];
+    NSLog(@"视频文件 MD5: %@", md5);
     if (self.targetFileName) {
-            NSData *data = [[NSFileManager defaultManager] contentsAtPath:[self.fileURL path]];
-            [data writeToFile:self.targetFileName atomically:YES];
-            NSLog(@"Video saved to custom path: %@", self.targetFileName);
-        } else {
-            [self saveVideoWithUrl:self.fileURL];
-        }
+        NSData *data = [[NSFileManager defaultManager] contentsAtPath:[self.fileURL path]];
+        [data writeToFile:self.targetFileName atomically:YES];
+        NSLog(@"Video saved to custom path: %@", self.targetFileName);
+    } else {
+        [self saveVideoWithUrl:self.fileURL];
+    }
+    // 将视频路径和 MD5 码一起返回给 Flutter
+    if (self.result) {
+        self.result(@{@"path": [self.fileURL path], @"md5": md5});
+        self.result = nil;
+    }
 }
 
 #pragma mark - FlutterStreamHandler
