@@ -60,6 +60,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 }
 
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
+    self.result = result;
     if ([@"getPlatformVersion" isEqualToString:call.method]) {
         result([@"iOS " stringByAppendingString:[[UIDevice currentDevice] systemVersion]]);
     } else if ([@"startRecordScreen" isEqualToString:call.method]) {
