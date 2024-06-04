@@ -10,8 +10,10 @@ import 'package:flutter/services.dart';
 import 'package:screen_recording/screen_recording.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'ScreenRecordingDemo.dart';
+
 void main() {
-  runApp(const MyApp());
+  runApp(const ScreenRecordingDemo());
 }
 
 class MyApp extends StatefulWidget {

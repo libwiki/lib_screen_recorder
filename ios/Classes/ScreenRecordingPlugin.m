@@ -262,26 +262,88 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     self.timer = nil;
     NSLog(@"Stopped fetching shared container data");
     // 读取视频文件数据并生成 MD5 码
-    NSData *videoData = [NSData dataWithContentsOfURL:self.fileURL];
-    NSString *md5 = [self MD5ForData:videoData];
-    NSLog(@"视频文件 MD5: %@", md5);
-    if (self.targetFileName) {
-        NSData *data = [[NSFileManager defaultManager] contentsAtPath:[self.fileURL path]];
-        [data writeToFile:self.targetFileName atomically:YES];
-        NSLog(@"Video saved to custom path: %@", self.targetFileName);
-    } else {
-        [self saveVideoWithUrl:self.fileURL];
+    [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
+        if (status == PHAuthorizationStatusAuthorized) {
+            // 相册访问权限已授权，可以进行下一步操作
+            [self fetchRecentVideo];
+        } else {
+            // 没有权限，无法访问相册
+        }
+    }];
+}
+
+- (void)fetchRecentVideo {
+    PHFetchOptions *options = [[PHFetchOptions alloc] init];
+    options.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
+    PHFetchResult *videos = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeVideo options:options];
+    if (videos.count > 0) {
+        PHAsset *videoAsset = videos.firstObject;
+        [self requestVideoURLFromAsset:videoAsset];
     }
-    // 处理视频数据，设置帧率和码率等参数
-    NSData *processedVideoData = [self processVideoData:[NSData dataWithContentsOfURL:self.fileURL]];
-    
-    // 将处理后的视频数据写入临时文件
-    NSString *tempFilePath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"processedVideo.mp4"];
-    [processedVideoData writeToFile:tempFilePath atomically:YES];
-    // 将视频路径和 MD5 码一起返回给 Flutter
-    if (self.result) {
-        self.result(@{@"path": tempFilePath, @"md5": md5});
-        self.result = nil;
+}
+
+- (void)requestVideoURLFromAsset:(PHAsset *)asset {
+    [[PHImageManager defaultManager] requestAVAssetForVideo:asset options:nil resultHandler:^(AVAsset * _Nullable asset, AVAudioMix * _Nullable audioMix, NSDictionary * _Nullable info) {
+        if ([asset isKindOfClass:[AVURLAsset class]]) {
+            NSURL *videoURL = [(AVURLAsset *)asset URL];
+            [self saveVideoToCustomPath:videoURL];
+        }
+    }];
+}
+
+- (void)saveVideoToCustomPath:(NSURL *)videoURL {
+    NSError *error = nil;
+    BOOL isDir = NO;
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    BOOL fileExists = [fileManager fileExistsAtPath:self.targetFileName isDirectory:&isDir];
+    if (fileExists) {
+        // 文件存在，先删除
+        BOOL isSuccess = [fileManager removeItemAtPath:self.targetFileName error:&error];
+        if (error) {
+            NSLog(@"删除文件时发生错误: %@", error);
+            return;
+        }
+    }
+    BOOL success = [[NSFileManager defaultManager] copyItemAtURL:videoURL toURL:[NSURL fileURLWithPath:self.targetFileName] error:&error];
+    if (success) {
+        NSLog(@"视频已保存到自定义路径: %@", self.targetFileName);
+        NSData *videoData = [NSData dataWithContentsOfURL:[NSURL fileURLWithPath:self.targetFileName]];
+      
+//        if (self.targetFileName) {
+//            NSData *data = [[NSFileManager defaultManager] contentsAtPath:[self.fileURL path]];
+//            [data writeToFile:self.targetFileName atomically:YES];
+//            NSLog(@"Video saved to custom path: %@", self.targetFileName);
+//        } else {
+//            [self saveVideoWithUrl:self.fileURL];
+//        }
+        // 处理视频数据，设置帧率和码率等参数
+        NSData *processedVideoData = [self processVideoData:videoData];
+        NSString *md5 = [self MD5ForData:processedVideoData];
+        NSLog(@"视频文件 MD5: %@", md5);
+        
+        // 将处理后的视频数据覆盖写入目标路径
+        NSError *error = nil;
+        BOOL isDir = NO;
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        BOOL fileExists = [fileManager fileExistsAtPath:self.targetFileName isDirectory:&isDir];
+        if (fileExists) {
+            // 文件存在，先删除
+            BOOL isSuccess = [fileManager removeItemAtPath:self.targetFileName error:&error];
+            if (error) {
+                NSLog(@"删除文件时发生错误: %@", error);
+                return;
+            }
+        }
+        bool isSuccess = [processedVideoData writeToFile:self.targetFileName options:NSDataWritingFileProtectionComplete error:nil];
+        // 将视频路径和 MD5 码一起返回给 Flutter
+        if (self.result) {
+            self.result(@{@"path": self.targetFileName, @"md5": md5});
+            self.result = nil;
+        }
+        // 通知 Flutter 视频保存成功，并提供路径
+    } else {
+        NSLog(@"保存视频时发生错误: %@", error);
+        // 通知 Flutter 视频保存失败，并提供错误信息
     }
 }
 

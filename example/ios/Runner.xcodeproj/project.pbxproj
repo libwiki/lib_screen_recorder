@@ -875,6 +875,7 @@
 				INFOPLIST_FILE = ScreenRecordingBroadcastExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ScreenRecordingBroadcastExtension;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "想要访问您的相册";
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -913,6 +914,7 @@
 				INFOPLIST_FILE = ScreenRecordingBroadcastExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ScreenRecordingBroadcastExtension;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "想要访问您的相册";
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -950,6 +952,7 @@
 				INFOPLIST_FILE = ScreenRecordingBroadcastExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ScreenRecordingBroadcastExtension;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "想要访问您的相册";
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
