@@ -15,9 +15,10 @@ class ScreenRecording {
     return version;
   }
 
-  Future<bool> startRecordScreen(String name, int height, int width) async {
-    final bool start = await _channel
-        .invokeMethod('startRecordScreen', {"name": name, "audio": false, "height": height, "width": width});
+  // 不设置path参数，默认就是保存到相册中
+  Future<bool> startRecordScreen({String? path, int frameRate = 30, int bitRate = 10000000}) async {
+    final bool start =
+        await _channel.invokeMethod('startRecordScreen', {"path": path, "frameRate": frameRate, "bitRate": bitRate});
     return start;
   }
 

@@ -27,12 +27,14 @@ class _MyAppState extends State<MyApp> {
   List<Uint8List> _videoChunks = [];
   late String _outputFilePath;
   final _screenRecordingPlugin = ScreenRecording();
-  double screenWidth = 0;
-  double screenHeight = 0;
   final TextEditingController _pathController = TextEditingController();
   static const platform = MethodChannel('screen_recording');
   String _videoPath = '未录制视频';
   String _md5Hash = '未生成MD5';
+  // 帧率默认值
+  String _frameRate = "30";
+  // 码率默认值
+  String _bitRate = "10000000";
 
   @override
   void initState() {
@@ -43,12 +45,6 @@ class _MyAppState extends State<MyApp> {
         _videoChunks.add(base64Decode(event as String));
         // Example: Print the length of received video chunks to console
         print('Received video chunk, length: ${_videoChunks.last.length}');
-      });
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      setState(() {
-        screenWidth = 375;
-        screenHeight = 812;
       });
     });
   }
@@ -102,6 +98,30 @@ class _MyAppState extends State<MyApp> {
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               TextField(
+                onChanged: (value) {
+                  // 更新帧率的值
+                  setState(() {
+                    _frameRate = value;
+                  });
+                },
+                decoration: InputDecoration(
+                  labelText: '帧率',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              TextField(
+                onChanged: (value) {
+                  // 更新码率的值
+                  setState(() {
+                    _bitRate = value;
+                  });
+                },
+                decoration: InputDecoration(
+                  labelText: '码率',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              TextField(
                 controller: _pathController,
                 decoration: InputDecoration(labelText: 'Custom Save Path (optional)'),
               ),
@@ -112,7 +132,7 @@ class _MyAppState extends State<MyApp> {
               ),
               GestureDetector(
                   onTap: () async {
-                    await _screenRecordingPlugin.startRecordScreen("test", screenHeight.toInt(), screenWidth.toInt());
+                    await _screenRecordingPlugin.startRecordScreen(path: _pathController.text);
                   },
                   child: const Text("开始录屏")),
               const SizedBox(height: 20),

@@ -158,6 +158,13 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     // 这个name就是自定义保存路径的参数
     self.targetFileName = call.arguments[@"name"];
     NSLog(@"targetFileName:%@",self.targetFileName);
+    // 获取帧率参数，默认值为 25
+        NSNumber *frameRate = call.arguments[@"frameRate"] ?: @(25);
+        NSLog(@"帧率：%@", frameRate);
+        
+        // 获取码率参数，默认值为 7500000
+        NSNumber *bitRate = call.arguments[@"bitRate"] ?: @(7500000);
+        NSLog(@"码率：%@", bitRate);
     if (@available(iOS 12.0, *)) {
         
         for (UIView *view in self.broadcastPickerView.subviews) {
