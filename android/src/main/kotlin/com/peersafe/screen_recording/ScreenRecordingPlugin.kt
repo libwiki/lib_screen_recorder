@@ -8,43 +8,50 @@ import android.hardware.display.VirtualDisplay
 import android.media.MediaRecorder
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
-import android.os.Environment
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
 import androidx.core.app.ActivityCompat
-import io.flutter.app.FlutterApplication
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry
 import io.flutter.plugin.common.PluginRegistry.Registrar
-import java.io.File
 import java.io.IOException
 
+class ScreenRecordingPlugin(private val registrar: Registrar) : MethodCallHandler,
+    PluginRegistry.ActivityResultListener {
 
-class ScreenRecordingPlugin(
-        private val registrar: Registrar
-) : MethodCallHandler,
-        PluginRegistry.ActivityResultListener {
+    private val eventChannel = EventChannel(registrar.messenger(), "screen_recording_stream")
+    private var eventSink: EventChannel.EventSink? = null
 
-    var mScreenDensity: Int = 0
-    var mMediaRecorder: MediaRecorder? = null
-    var mProjectionManager: MediaProjectionManager? = null
-    var mMediaProjection: MediaProjection? = null
-    var mMediaProjectionCallback: MediaProjectionCallback? = null
-    var mVirtualDisplay: VirtualDisplay? = null
-    var mDisplayWidth: Int = 1080
-    var mDisplayHeight: Int = 2208
-    // var storePath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).absolutePath + File.separator
-    var videoName: String? = ""
-    var recordAudio: Boolean? = false;
+    private var mScreenDensity: Int = 0
+    private var mMediaRecorder: MediaRecorder? = null
+    private var mProjectionManager: MediaProjectionManager? = null
+    private var mMediaProjection: MediaProjection? = null
+    private var mMediaProjectionCallback: MediaProjectionCallback? = null
+    private var mVirtualDisplay: VirtualDisplay? = null
+    private var mDisplayWidth: Int = 1080
+    private var mDisplayHeight: Int = 2208
+    private var videoName: String? = ""
+    private var recordAudio: Boolean? = false
     private val SCREEN_RECORD_REQUEST_CODE = 333
-    private val SCREEN_STOP_RECORD_REQUEST_CODE = 334
 
-    private lateinit var _result: MethodChannel.Result
+    private lateinit var _result: Result
 
+    init {
+        eventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                eventSink = events
+            }
+
+            override fun onCancel(arguments: Any?) {
+                eventSink = null
+            }
+        })
+    }
 
     companion object {
         @JvmStatic
@@ -53,12 +60,22 @@ class ScreenRecordingPlugin(
             val plugin = ScreenRecordingPlugin(registrar)
             channel.setMethodCallHandler(plugin)
             registrar.addActivityResultListener(plugin)
+
+            // Ensure EventChannel is registered
+            val eventChannel = EventChannel(registrar.messenger(), "screen_recording_stream")
+            eventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    plugin.eventSink = events
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    plugin.eventSink = null
+                }
+            })
         }
     }
 
-
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
-
         if (requestCode == SCREEN_RECORD_REQUEST_CODE) {
             if (resultCode == Activity.RESULT_OK) {
                 mMediaProjectionCallback = MediaProjectionCallback()
@@ -72,7 +89,6 @@ class ScreenRecordingPlugin(
                 _result.success(false)
             }
         }
-
         return false
     }
 
@@ -81,24 +97,20 @@ class ScreenRecordingPlugin(
             try {
                 _result = result
                 mMediaRecorder = MediaRecorder()
-                mProjectionManager = registrar.context().applicationContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager?
-                val windowManager = registrar.context().applicationContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                val metrics: DisplayMetrics = DisplayMetrics()
+                mProjectionManager = registrar.context().getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                val windowManager = registrar.context().getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                val metrics = DisplayMetrics()
                 windowManager.defaultDisplay.getMetrics(metrics)
                 mScreenDensity = metrics.densityDpi
 
-                //calculeResolution(metrics)
-
-                videoName = call.argument<String?>("name")
-                recordAudio = call.argument<Boolean?>("audio")
-                mDisplayHeight = (call.argument<Integer?>("height")).toString().toInt()
-                mDisplayWidth = (call.argument<Integer?>("width")).toString().toInt()
+                videoName = call.argument<String>("name")
+                recordAudio = call.argument<Boolean>("audio")
+                mDisplayHeight = call.argument<Int>("height")!!
+                mDisplayWidth = call.argument<Int>("width")!!
 
                 startRecordScreen()
-                //result.success(true)
             } catch (e: Exception) {
-                println("Error onMethodCall startRecordScreen")
-                println(e.message)
+                Log.e("ScreenRecordingPlugin", "Error starting screen recording", e)
                 result.success(false)
             }
 
@@ -106,7 +118,7 @@ class ScreenRecordingPlugin(
             try {
                 if (mMediaRecorder != null) {
                     stopRecordScreen()
-                    result.success("${videoName}")
+                    result.success(videoName)
                 } else {
                     result.success("")
                 }
@@ -119,114 +131,74 @@ class ScreenRecordingPlugin(
         }
     }
 
-    fun calculeResolution(metrics: DisplayMetrics) {
-
-        var maxRes = 1280.0;
-
-        if (metrics.scaledDensity >= 3.0f) {
-            maxRes = 1920.0;
-        }
-
-        if (metrics.widthPixels > metrics.heightPixels) {
-            val rate = metrics.widthPixels / maxRes
-            mDisplayWidth = maxRes.toInt()
-            mDisplayHeight = (metrics.heightPixels / rate).toInt()
-        } else {
-            val rate = metrics.heightPixels / maxRes
-            mDisplayHeight = maxRes.toInt()
-            mDisplayWidth = (metrics.widthPixels / rate).toInt()
-        }
-
-        println("Scaled Density")
-        println(metrics.scaledDensity)
-        println("Original Resolution ")
-        println(metrics.widthPixels.toString() + " x " + metrics.heightPixels)
-        println("Calcule Resolution ")
-        println("$mDisplayWidth x $mDisplayHeight")
-    }
-
-    fun startRecordScreen() {
+    private fun startRecordScreen() {
         try {
-            mMediaRecorder?.setVideoSource(MediaRecorder.VideoSource.SURFACE)
-            if (recordAudio!!) {
-                mMediaRecorder?.setAudioSource(MediaRecorder.AudioSource.MIC);
-                mMediaRecorder?.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
-                mMediaRecorder?.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            } else {
-                mMediaRecorder?.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            mMediaRecorder?.apply {
+                setVideoSource(MediaRecorder.VideoSource.SURFACE)
+                if (recordAudio == true) {
+                    setAudioSource(MediaRecorder.AudioSource.MIC)
+                    setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
+                    setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                } else {
+                    setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                }
+                setOutputFile(videoName)
+                setVideoSize(mDisplayWidth, mDisplayHeight)
+                setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+                setVideoEncodingBitRate(5 * mDisplayWidth * mDisplayHeight)
+                setVideoFrameRate(60)
+                prepare()
             }
-            mMediaRecorder?.setOutputFile("${videoName}")
-            println(mDisplayWidth)
-            println(mDisplayHeight)
-            mMediaRecorder?.setVideoSize(mDisplayWidth, mDisplayHeight)
-            mMediaRecorder?.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-            mMediaRecorder?.setVideoEncodingBitRate(5 * mDisplayWidth * mDisplayHeight)
-            mMediaRecorder?.setVideoFrameRate(60)
 
+            val permissionIntent = mProjectionManager?.createScreenCaptureIntent()
+            registrar.activity()?.let {
+                ActivityCompat.startActivityForResult(it, permissionIntent!!, SCREEN_RECORD_REQUEST_CODE, null)
+            } ?: run {
+                _result.error("NoActivity", "No activity to startForResult", null)
+            }
 
-            mMediaRecorder?.prepare()
-            // mMediaRecorder?.start()
         } catch (e: IOException) {
-            Log.d("--INIT-RECORDER", e.message)
-            println("Error startRecordScreen")
-            println(e.message)
+            Log.e("ScreenRecordingPlugin", "Error preparing MediaRecorder", e)
         }
-
-        val permissionIntent = mProjectionManager?.createScreenCaptureIntent()
-//        ActivityCompat.startActivityForResult((registrar.context().applicationContext as FlutterApplication).currentActivity, permissionIntent!!, SCREEN_RECORD_REQUEST_CODE, null)
-        registrar.activity()?.let {
-            ActivityCompat.startActivityForResult(it, permissionIntent!!, SCREEN_RECORD_REQUEST_CODE, null)
-        } ?: run {
-            // 处理 Activity 为 null 的情况
-            _result.error("NoActivity", "No activity to startForResult", null)
-        }
-
     }
 
-    fun stopRecordScreen() {
+    private fun stopRecordScreen() {
         try {
-
             mMediaRecorder?.stop()
             mMediaRecorder?.release()
             mMediaRecorder = null
-            println("stopRecordScreen success")
-
-        } catch (e: Exception) {
-            Log.d("--INIT-RECORDER", e.message)
-            println("stopRecordScreen error")
-            println(e.message)
-
-        } finally {
             stopScreenSharing()
-            println("stopScreenSharing")
+        } catch (e: Exception) {
+            Log.e("ScreenRecordingPlugin", "Error stopping screen recording", e)
         }
     }
 
     private fun createVirtualDisplay(): VirtualDisplay? {
-        return mMediaProjection?.createVirtualDisplay("MainActivity", mDisplayWidth, mDisplayHeight, mScreenDensity,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, mMediaRecorder?.getSurface(), null, null)
+        return mMediaProjection?.createVirtualDisplay(
+            "ScreenRecording",
+            mDisplayWidth,
+            mDisplayHeight,
+            mScreenDensity,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            mMediaRecorder?.surface,
+            null,
+            null
+        )
     }
 
     private fun stopScreenSharing() {
-        if (mVirtualDisplay != null) {
-            mVirtualDisplay?.release()
-            if (mMediaProjection != null) {
-                mMediaProjection?.unregisterCallback(mMediaProjectionCallback)
-                mMediaProjection?.stop()
-                mMediaProjection = null
-            }
-            Log.d("TAG", "MediaProjection Stopped")
-        }
+        mVirtualDisplay?.release()
+        mMediaProjection?.unregisterCallback(mMediaProjectionCallback)
+        mMediaProjection?.stop()
+        mMediaProjection = null
     }
 
-    inner class MediaProjectionCallback : MediaProjection.Callback() {
+    private inner class MediaProjectionCallback : MediaProjection.Callback() {
         override fun onStop() {
             mMediaRecorder?.stop()
             mMediaRecorder?.release()
             mMediaRecorder = null
-            mMediaProjection = null
             stopScreenSharing()
         }
     }
-
 }
