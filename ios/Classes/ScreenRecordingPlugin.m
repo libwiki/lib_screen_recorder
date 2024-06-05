@@ -78,7 +78,8 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     }else if ([@"chooseSavePath" isEqualToString:call.method]) {
         [self chooseSavePathWithResult:result];
     }else if ([@"queryMd5" isEqualToString:call.method]) {
-        [self queryMd5: call];
+     NSString *md5 = [self queryMd5: call];
+        result(md5);
     }else {
         result(FlutterMethodNotImplemented);
     }
@@ -308,14 +309,14 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     if (success) {
         NSLog(@"视频已保存到自定义路径: %@", self.targetFileName);
         NSData *videoData = [NSData dataWithContentsOfURL:[NSURL fileURLWithPath:self.targetFileName]];
-      
-//        if (self.targetFileName) {
-//            NSData *data = [[NSFileManager defaultManager] contentsAtPath:[self.fileURL path]];
-//            [data writeToFile:self.targetFileName atomically:YES];
-//            NSLog(@"Video saved to custom path: %@", self.targetFileName);
-//        } else {
-//            [self saveVideoWithUrl:self.fileURL];
-//        }
+        
+        //        if (self.targetFileName) {
+        //            NSData *data = [[NSFileManager defaultManager] contentsAtPath:[self.fileURL path]];
+        //            [data writeToFile:self.targetFileName atomically:YES];
+        //            NSLog(@"Video saved to custom path: %@", self.targetFileName);
+        //        } else {
+        //            [self saveVideoWithUrl:self.fileURL];
+        //        }
         // 处理视频数据，设置帧率和码率等参数
         NSData *processedVideoData = [self processVideoData:videoData];
         NSString *md5 = [self MD5ForData:processedVideoData];
@@ -332,9 +333,16 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
             if (error) {
                 NSLog(@"删除文件时发生错误: %@", error);
                 return;
+            }else {
+                NSLog(@"已经删除%@路径文件",self.targetFileName);
             }
         }
-        bool isSuccess = [processedVideoData writeToFile:self.targetFileName options:NSDataWritingFileProtectionComplete error:nil];
+        bool isSuccess = [processedVideoData writeToFile:self.targetFileName atomically:YES];
+        if (isSuccess) {
+            NSLog(@"写入处理好的视频成功");
+        }else {
+            NSLog(@"写入处理好的视频失败");
+        }
         // 将视频路径和 MD5 码一起返回给 Flutter
         if (self.result) {
             self.result(@{@"path": self.targetFileName, @"md5": md5});
@@ -349,7 +357,12 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 
 # pragma mark - 对视频进行处理，设置帧率码率，再回传给flutter
 - (NSData *)processVideoData:(NSData *)videoData {
-    AVAsset *asset = [AVAsset assetWithURL:self.fileURL];
+    // 创建临时文件存储传入的视频数据
+    NSString *tempFilePath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"tempVideo.mp4"];
+    [videoData writeToFile:tempFilePath atomically:YES];
+    
+    // 使用临时文件创建 AVAsset
+    AVAsset *asset = [AVAsset assetWithURL:[NSURL fileURLWithPath:tempFilePath]];
     AVAssetTrack *videoTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
     
     // 设置视频属性
@@ -365,22 +378,42 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         return nil;
     }
     
-    // 设置视频的帧率和码率等参数
-    NSDictionary *videoCompressionProperties = @{
-        AVVideoAverageBitRateKey: self.bitRate, // 码率
-        AVVideoExpectedSourceFrameRateKey: self.frameRate // 帧率
-    };
+    // 设置视频的帧率和渲染大小
+    AVMutableVideoComposition *videoComposition = [AVMutableVideoComposition videoComposition];
+    videoComposition.frameDuration = CMTimeMake(1, [self.frameRate intValue]);
+    videoComposition.renderSize = videoTrack.naturalSize;
     
-    NSDictionary *videoSettings = @{
-        AVVideoCompressionPropertiesKey: videoCompressionProperties
-    };
+    // 设置视频合成指令
+    AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
+    instruction.timeRange = CMTimeRangeMake(kCMTimeZero, asset.duration);
     
+    AVMutableVideoCompositionLayerInstruction *layerInstruction = [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:compositionVideoTrack];
+    [layerInstruction setTransform:videoTrack.preferredTransform atTime:kCMTimeZero];
+    
+    instruction.layerInstructions = @[layerInstruction];
+    videoComposition.instructions = @[instruction];
+    
+    // 创建 AVAssetExportSession
     AVAssetExportSession *exportSession = [[AVAssetExportSession alloc] initWithAsset:composition
-                                                                           presetName:AVAssetExportPresetPassthrough];
+                                                                           presetName:AVAssetExportPresetHighestQuality];
     exportSession.outputFileType = AVFileTypeMPEG4;
     NSString *processedFilePath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"processedVideo.mp4"];
+    NSError *reerror = nil;
+    BOOL isDir = NO;
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    BOOL fileExists = [fileManager fileExistsAtPath:processedFilePath isDirectory:&isDir];
+    if (fileExists) {
+        // 文件存在，先删除
+        [fileManager removeItemAtPath:processedFilePath error:&error];
+        if (reerror) {
+            NSLog(@"删除临时文件发生错误: %@", error);
+            return nil;
+        }else {
+            NSLog(@"已经删除%@路径文件",processedFilePath);
+        }
+    }
     exportSession.outputURL = [NSURL fileURLWithPath:processedFilePath];
-    exportSession.videoComposition = videoSettings;
+    exportSession.videoComposition = videoComposition;
     
     dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
     [exportSession exportAsynchronouslyWithCompletionHandler:^{
@@ -394,6 +427,9 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         return processedVideoData;
     } else {
         NSLog(@"Video processing failed with error: %@", exportSession.error);
+        if (exportSession.error) {
+            NSLog(@"Error details: %@", exportSession.error.localizedDescription);
+        }
         return nil;
     }
 }
