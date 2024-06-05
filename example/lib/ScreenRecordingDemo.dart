@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:oktoast/oktoast.dart';
@@ -35,6 +36,8 @@ class _ScreenRecordingDemoState extends State<ScreenRecordingDemo> {
   String _videoPath = '未录制视频';
   String _md5Hash = '未生成MD5';
   String _md5Hash2 = '...';
+  String _md5Hash3 = '...';
+  String uploaderUrl = "...";
 
   // 帧率默认值
   String _frameRate = "30";
@@ -63,20 +66,35 @@ class _ScreenRecordingDemoState extends State<ScreenRecordingDemo> {
   }
 
   Future<void> _initOutputFilePath() async {
-    Directory appDocDir = await getApplicationDocumentsDirectory();
+    Directory appDocDir = await getTemporaryDirectory();
     setState(() {
       _outputFilePath = '${appDocDir.path}/recorded_video.mp4';
+      // _outputFilePath = '${appDocDir.path}/';
     });
+  }
+
+  _deleteFile() {
+    final file = File(_videoPath);
+
+    if (file.existsSync()) {
+      file.deleteSync();
+      print("删除文件成功: ${file.path}");
+      showToast("删除成功");
+    }
   }
 
   _checkMd5() async {
     try {
       final file = File(_videoPath);
-      print(_videoPath);
+
       if (!file.existsSync()) {
         showToast("文件不存在");
+        print("$_videoPath 文件不存在");
         return;
       }
+      md5ForFile(file);
+      print("文件大小：${file.lengthSync()}  ${file.path}");
+
       final res = await _screenRecordingPlugin.queryMd5(_videoPath);
       setState(() {
         _md5Hash2 = res;
@@ -118,15 +136,34 @@ class _ScreenRecordingDemoState extends State<ScreenRecordingDemo> {
                   _md5Hash2,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
+                const Text('flutter MD5:'),
+                Text(
+                  _md5Hash3,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const Text('Upload Url:'),
+                GestureDetector(
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(
+                      text: uploaderUrl,
+                    ));
+                    showToast("复制成功");
+                  },
+                  child: Container(
+                    color: Colors.transparent,
+                    child: Text(
+                      uploaderUrl,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: _deleteFile,
+                  child: const Text('删除文件'),
+                ),
                 ElevatedButton(
                   onPressed: _checkMd5,
                   child: const Text('校验md5'),
-                ),
-                TextField(
-                  controller: _pathController,
-                  decoration: const InputDecoration(
-                    labelText: 'Custom Save Path (optional)',
-                  ),
                 ),
                 ElevatedButton(
                   onPressed: () async {
@@ -140,10 +177,6 @@ class _ScreenRecordingDemoState extends State<ScreenRecordingDemo> {
                   },
                   child: const Text("停止录屏"),
                 ),
-                // ElevatedButton(
-                //   onPressed: _saveVideoToFile,
-                //   child: const Text('Save Video'),
-                // ),
               ],
             ),
           ),
@@ -154,10 +187,13 @@ class _ScreenRecordingDemoState extends State<ScreenRecordingDemo> {
 
   Future<void> _startRecording() async {
     try {
-      await _screenRecordingPlugin.startRecordScreen(
-          path: _outputFilePath, // ../../demo.mp4
-          frameRate: int.parse(_frameRate),
-          bitRate: int.parse(_bitRate));
+      print("开始录制:传入的路径：$_outputFilePath");
+      final res = await _screenRecordingPlugin.startRecordScreen(
+        path: _outputFilePath, // ../../demo.mp4
+        frameRate: int.parse(_frameRate),
+        bitRate: int.parse(_bitRate),
+      );
+      print("开始录制: $res，传入的路径：$_outputFilePath");
     } on PlatformException catch (e) {
       print('${e.message}');
     }
@@ -166,6 +202,8 @@ class _ScreenRecordingDemoState extends State<ScreenRecordingDemo> {
   Future<void> _stopRecording() async {
     try {
       final result = await _screenRecordingPlugin.stopRecordScreen();
+      print("录制结束路径：${result['path']}");
+      print("录制结束MD5：${result['md5']}");
       setState(() {
         _videoPath = result['path'];
         _md5Hash = result['md5'];
@@ -173,5 +211,23 @@ class _ScreenRecordingDemoState extends State<ScreenRecordingDemo> {
     } on PlatformException catch (e) {
       print("Failed to stop recording: '${e.message}'.");
     }
+  }
+
+  md5ForFile(File file) async {
+    final f = file.openSync();
+    final str = md5ForData(f.readSync(f.lengthSync()));
+    f.close();
+    setState(() {
+      _md5Hash3 = str;
+    });
+  }
+
+  String md5ForData(List<int> data) {
+    List<int> result = md5.convert(data).bytes;
+    StringBuffer hash = StringBuffer();
+    for (int i = 0; i < result.length; i++) {
+      hash.write(result[i].toRadixString(16).padLeft(2, '0'));
+    }
+    return hash.toString();
   }
 }
