@@ -25,6 +25,7 @@ API_AVAILABLE(ios(10.0))
 @property (nonatomic, strong) NSNumber *bitRate;
 @property (nonatomic, assign) BOOL isRecordingStopped;
 @property (nonatomic, strong) PHFetchResult<PHAsset *> *previousFetchResult;
+@property (nonatomic, strong) PHAsset *recentVideoAsset;
 @end
 
 static NSString * const ScreenHoleNotificationName = @"ScreenHoleNotificationName";
@@ -308,14 +309,6 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     self.timer = nil;
     NSLog(@"Stopped fetching shared container data");
     // 读取视频文件数据并生成 MD5 码
-    [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
-        if (status == PHAuthorizationStatusAuthorized) {
-            // 相册访问权限已授权，可以进行下一步操作
-            [self fetchRecentVideo];
-        } else {
-            // 没有权限，无法访问相册
-        }
-    }];
 }
 
 // 实现 PHPhotoLibraryChangeObserver 协议方法
@@ -331,20 +324,14 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         if (changeDetails != nil) {
             // 有新的视频添加到相册中
             if (currentFetchResult.count > 0) {
-                PHAsset *recentVideoAsset = currentFetchResult.firstObject;
-                
-                // 删除最近的一条视频
-                [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
-                    [PHAssetChangeRequest deleteAssets:@[recentVideoAsset]];
-                } completionHandler:^(BOOL success, NSError * _Nullable error) {
-                    if (success) {
-                        NSLog(@"最近的一条视频删除成功");
+                self.recentVideoAsset = currentFetchResult.firstObject;
+                [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
+                    if (status == PHAuthorizationStatusAuthorized) {
+                        // 相册访问权限已授权，可以进行下一步操作
+                        [self fetchRecentVideo];
                     } else {
-                        NSLog(@"最近的一条视频删除失败：%@", error);
+                        // 没有权限，无法访问相册
                     }
-                    
-                    // 注销相册变化观察者
-                    [[PHPhotoLibrary sharedPhotoLibrary] unregisterChangeObserver:self];
                 }];
             }
         }
@@ -414,6 +401,19 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         } else {
             NSLog(@"写入处理好的视频失败");
         }
+        // 删除最近的一条视频
+        [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
+            [PHAssetChangeRequest deleteAssets:@[self.recentVideoAsset]];
+        } completionHandler:^(BOOL success, NSError * _Nullable error) {
+            if (success) {
+                NSLog(@"最近的一条视频删除成功");
+            } else {
+                NSLog(@"最近的一条视频删除失败：%@", error);
+            }
+            
+            // 注销相册变化观察者
+            [[PHPhotoLibrary sharedPhotoLibrary] unregisterChangeObserver:self];
+        }];
         
         
 //        // 创建 PHFetchOptions 对象，用于排序和限制获取视频数量
