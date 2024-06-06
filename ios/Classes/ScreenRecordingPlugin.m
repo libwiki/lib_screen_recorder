@@ -64,17 +64,6 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
                                                  selector:@selector(screenRecordingChanged:)
                                                      name:UIScreenCapturedDidChangeNotification
                                                    object:nil];
-        // 申请相册权限以及初始化
-        [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
-            if (status != PHAuthorizationStatusAuthorized) {
-                return;
-            }
-            PHFetchOptions *fetchOptions = [[PHFetchOptions alloc] init];
-            fetchOptions.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
-            fetchOptions.fetchLimit = 1;
-            
-            self.previousFetchResult = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeVideo options:fetchOptions];
-        }];
     }
     return self;
 }
@@ -196,6 +185,17 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 
 
 - (void)startRecorScreen:(FlutterMethodCall*)call {
+    // 申请相册权限以及初始化
+    [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
+        if (status != PHAuthorizationStatusAuthorized) {
+            return;
+        }
+        PHFetchOptions *fetchOptions = [[PHFetchOptions alloc] init];
+        fetchOptions.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
+        fetchOptions.fetchLimit = 1;
+        
+        self.previousFetchResult = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeVideo options:fetchOptions];
+    }];
     [[PHPhotoLibrary sharedPhotoLibrary] registerChangeObserver:self];
     // 这个path就是自定义保存路径的参数
     self.targetFileName = call.arguments[@"path"];
