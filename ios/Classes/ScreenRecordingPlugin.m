@@ -78,7 +78,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     }else if ([@"chooseSavePath" isEqualToString:call.method]) {
         [self chooseSavePathWithResult:result];
     }else if ([@"queryMd5" isEqualToString:call.method]) {
-     NSString *md5 = [self queryMd5: call];
+        NSString *md5 = [self queryMd5: call];
         result(md5);
     }else {
         result(FlutterMethodNotImplemented);
@@ -246,6 +246,18 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 // 想要停止系统录屏，您需要使用特定的API来执行此操作。在iOS中，系统录屏是由用户手动启动并控制的，因此您无法直接停止系统录屏，而只能提供给用户一个停止录屏的选项。您可以通过调用系统提供的停止录屏的接口来实现这一点。
 // 在录制完成时，生成视频文件的 MD5 码，并将它与视频路径一起返回
 - (void)stopRecordScreen {
+    if ([UIScreen mainScreen].isCaptured) {
+        NSLog(@"正在录屏");
+    }else {
+        UIAlertController *alertController = [UIAlertController alertControllerWithTitle:@"录屏未启动"
+                                                                                 message:@"您尚未启动系统录屏，请先启动录屏后再进行操作。"
+                                                                          preferredStyle:UIAlertControllerStyleAlert];
+        [alertController addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+        
+        UIViewController *rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
+        [rootViewController presentViewController:alertController animated:YES completion:nil];
+        return;
+    }
     if (@available(iOS 12.0, *)) {
         
         for (UIView *view in self.broadcastPickerView.subviews) {
