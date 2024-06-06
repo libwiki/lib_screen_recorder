@@ -317,18 +317,12 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
             return;
         }
     }
+    
     BOOL success = [[NSFileManager defaultManager] copyItemAtURL:videoURL toURL:[NSURL fileURLWithPath:self.targetFileName] error:&error];
     if (success) {
         NSLog(@"视频已保存到自定义路径: %@", self.targetFileName);
         NSData *videoData = [NSData dataWithContentsOfURL:[NSURL fileURLWithPath:self.targetFileName]];
         
-        //        if (self.targetFileName) {
-        //            NSData *data = [[NSFileManager defaultManager] contentsAtPath:[self.fileURL path]];
-        //            [data writeToFile:self.targetFileName atomically:YES];
-        //            NSLog(@"Video saved to custom path: %@", self.targetFileName);
-        //        } else {
-        //            [self saveVideoWithUrl:self.fileURL];
-        //        }
         // 处理视频数据，设置帧率和码率等参数
         NSData *processedVideoData = [self processVideoData:videoData];
         NSString *md5 = [self MD5ForData:processedVideoData];
@@ -336,31 +330,61 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         
         // 将处理后的视频数据覆盖写入目标路径
         NSError *error = nil;
-        BOOL isDir = NO;
         NSFileManager *fileManager = [NSFileManager defaultManager];
-        BOOL fileExists = [fileManager fileExistsAtPath:self.targetFileName isDirectory:&isDir];
+        BOOL fileExists = [fileManager fileExistsAtPath:self.targetFileName];
         if (fileExists) {
             // 文件存在，先删除
             BOOL isSuccess = [fileManager removeItemAtPath:self.targetFileName error:&error];
             if (error) {
                 NSLog(@"删除文件时发生错误: %@", error);
                 return;
-            }else {
-                NSLog(@"已经删除%@路径文件",self.targetFileName);
+            } else {
+                NSLog(@"已删除文件: %@", self.targetFileName);
             }
         }
-        bool isSuccess = [processedVideoData writeToFile:self.targetFileName atomically:YES];
+        BOOL isSuccess = [processedVideoData writeToFile:self.targetFileName atomically:YES];
         if (isSuccess) {
             NSLog(@"写入处理好的视频成功");
-        }else {
+        } else {
             NSLog(@"写入处理好的视频失败");
         }
+        
+
+        // 创建 PHFetchOptions 对象，用于排序和限制获取视频数量
+        PHFetchOptions *fetchOptions = [[PHFetchOptions alloc] init];
+        fetchOptions.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
+        fetchOptions.fetchLimit = 1; // 限制只获取一条视频记录
+
+        // 获取最近的一条视频 PHAsset 对象
+        PHFetchResult<PHAsset *> *recentVideoAssets = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeVideo options:fetchOptions];
+
+        // 检查是否获取到了视频
+        if (recentVideoAssets.count > 0) {
+            PHAsset *recentVideoAsset = recentVideoAssets.firstObject;
+            
+            // 删除最近的一条视频
+            [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
+                [PHAssetChangeRequest deleteAssets:@[recentVideoAsset]];
+            } completionHandler:^(BOOL success, NSError * _Nullable error) {
+                if (success) {
+                    NSLog(@"最近的一条视频删除成功");
+                } else {
+                    NSLog(@"最近的一条视频删除失败：%@", error);
+                }
+            }];
+        } else {
+            NSLog(@"相册中没有视频可供删除");
+        }
+
+
+
+
+        
         // 将视频路径和 MD5 码一起返回给 Flutter
         if (self.result) {
             self.result(@{@"path": self.targetFileName, @"md5": md5});
             self.result = nil;
         }
-        // 通知 Flutter 视频保存成功，并提供路径
     } else {
         NSLog(@"保存视频时发生错误: %@", error);
         // 通知 Flutter 视频保存失败，并提供错误信息
