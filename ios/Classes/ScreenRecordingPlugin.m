@@ -6,7 +6,7 @@
 #import <CommonCrypto/CommonDigest.h>
 
 API_AVAILABLE(ios(10.0))
-@interface ScreenRecordingPlugin ()<RPBroadcastActivityViewControllerDelegate,RPBroadcastControllerDelegate, AVCaptureVideoDataOutputSampleBufferDelegate, UIDocumentPickerDelegate>
+@interface ScreenRecordingPlugin ()<RPBroadcastActivityViewControllerDelegate,RPBroadcastControllerDelegate, AVCaptureVideoDataOutputSampleBufferDelegate, UIDocumentPickerDelegate, PHPhotoLibraryChangeObserver>
 @property RPBroadcastController *broadcastController;
 @property NSTimer *timer;
 @property UIView *view;
@@ -18,10 +18,13 @@ API_AVAILABLE(ios(10.0))
 @property (nonatomic, strong) FlutterEventSink eventSink;
 @property BOOL isInited;
 @property (nonatomic, assign) BOOL isRecording;
-@property (nonatomic, copy) FlutterResult result;
+@property (nonatomic, copy) FlutterResult resultStart;
+@property (nonatomic, copy) FlutterResult resultStop;
 // 视频的帧率
 @property (nonatomic, strong) NSNumber *frameRate;
 @property (nonatomic, strong) NSNumber *bitRate;
+@property (nonatomic, assign) BOOL isRecordingStopped;
+@property (nonatomic, strong) PHFetchResult<PHAsset *> *previousFetchResult;
 @end
 
 static NSString * const ScreenHoleNotificationName = @"ScreenHoleNotificationName";
@@ -57,15 +60,44 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     self = [super init];
     if (self) {
         self.isRecording = NO;
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(screenRecordingChanged:)
+                                                     name:UIScreenCapturedDidChangeNotification
+                                                   object:nil];
+        // 申请相册权限以及初始化
+        [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
+            if (status != PHAuthorizationStatusAuthorized) {
+                return;
+            }
+            PHFetchOptions *fetchOptions = [[PHFetchOptions alloc] init];
+            fetchOptions.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
+            fetchOptions.fetchLimit = 1;
+            
+            self.previousFetchResult = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeVideo options:fetchOptions];
+        }];
     }
     return self;
 }
 
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)screenRecordingChanged:(NSNotification *)notification {
+    if ([UIScreen mainScreen].isCaptured) {
+        NSLog(@"检测到屏幕录制开启");
+        self.resultStart(@YES);
+    } else {
+        NSLog(@"检测到屏幕录制关闭");
+        self.resultStart(@NO);
+    }
+}
+
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
-    self.result = result;
     if ([@"getPlatformVersion" isEqualToString:call.method]) {
         result([@"iOS " stringByAppendingString:[[UIDevice currentDevice] systemVersion]]);
     } else if ([@"startRecordScreen" isEqualToString:call.method]) {
+        self.resultStart = result;
         if(self.isInited){
             NSLog(@"has inited");
         }else{
@@ -74,6 +106,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         }
         [self startRecorScreen:call];
     } else if ([@"stopRecordScreen" isEqualToString:call.method]) {
+        self.resultStop = result;
         [self stopRecordScreen];
     }else if ([@"chooseSavePath" isEqualToString:call.method]) {
         [self chooseSavePathWithResult:result];
@@ -133,8 +166,6 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         
         UIViewController *rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
         [rootViewController presentViewController:documentPicker animated:YES completion:nil];
-        
-        self.result = result;
     } else {
         NSLog(@"选择文件夹在此 iOS 版本不可用。");
         //        result(FlutterError(code: "UNAVAILABLE", message: "Choosing folder is unavailable on this iOS version.", details: nil));
@@ -150,7 +181,6 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 # pragma mark - 用户选择完文件夹地址后，回传给flutter
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     NSURL *pickedURL = [urls firstObject];
-    self.result([pickedURL path]);
 }
 
 # pragma mark - 生成md5
@@ -166,6 +196,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 
 
 - (void)startRecorScreen:(FlutterMethodCall*)call {
+    [[PHPhotoLibrary sharedPhotoLibrary] registerChangeObserver:self];
     // 这个path就是自定义保存路径的参数
     self.targetFileName = call.arguments[@"path"];
     NSLog(@"targetFileName:%@",self.targetFileName);
@@ -190,6 +221,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     } else {
         // Fallback on earlier versions
     }
+    self.isRecordingStopped = NO;
     [self startFetchingSharedContainerData];
 }
 
@@ -258,6 +290,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         [rootViewController presentViewController:alertController animated:YES completion:nil];
         return;
     }
+    self.isRecordingStopped = YES;
     if (@available(iOS 12.0, *)) {
         
         for (UIView *view in self.broadcastPickerView.subviews) {
@@ -283,6 +316,39 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
             // 没有权限，无法访问相册
         }
     }];
+}
+
+// 实现 PHPhotoLibraryChangeObserver 协议方法
+- (void)photoLibraryDidChange:(PHChange *)changeInstance {
+    if (self.isRecordingStopped) {
+        PHFetchOptions *fetchOptions = [[PHFetchOptions alloc] init];
+        fetchOptions.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
+        fetchOptions.fetchLimit = 1;
+        
+        PHFetchResult<PHAsset *> *currentFetchResult = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeVideo options:fetchOptions];
+        PHFetchResultChangeDetails *changeDetails = [changeInstance changeDetailsForFetchResult:self.previousFetchResult];
+        
+        if (changeDetails != nil) {
+            // 有新的视频添加到相册中
+            if (currentFetchResult.count > 0) {
+                PHAsset *recentVideoAsset = currentFetchResult.firstObject;
+                
+                // 删除最近的一条视频
+                [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
+                    [PHAssetChangeRequest deleteAssets:@[recentVideoAsset]];
+                } completionHandler:^(BOOL success, NSError * _Nullable error) {
+                    if (success) {
+                        NSLog(@"最近的一条视频删除成功");
+                    } else {
+                        NSLog(@"最近的一条视频删除失败：%@", error);
+                    }
+                    
+                    // 注销相册变化观察者
+                    [[PHPhotoLibrary sharedPhotoLibrary] unregisterChangeObserver:self];
+                }];
+            }
+        }
+    }
 }
 
 - (void)fetchRecentVideo {
@@ -349,41 +415,41 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
             NSLog(@"写入处理好的视频失败");
         }
         
-
-        // 创建 PHFetchOptions 对象，用于排序和限制获取视频数量
-        PHFetchOptions *fetchOptions = [[PHFetchOptions alloc] init];
-        fetchOptions.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
-        fetchOptions.fetchLimit = 1; // 限制只获取一条视频记录
-
-        // 获取最近的一条视频 PHAsset 对象
-        PHFetchResult<PHAsset *> *recentVideoAssets = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeVideo options:fetchOptions];
-
-        // 检查是否获取到了视频
-        if (recentVideoAssets.count > 0) {
-            PHAsset *recentVideoAsset = recentVideoAssets.firstObject;
-            
-            // 删除最近的一条视频
-            [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
-                [PHAssetChangeRequest deleteAssets:@[recentVideoAsset]];
-            } completionHandler:^(BOOL success, NSError * _Nullable error) {
-                if (success) {
-                    NSLog(@"最近的一条视频删除成功");
-                } else {
-                    NSLog(@"最近的一条视频删除失败：%@", error);
-                }
-            }];
-        } else {
-            NSLog(@"相册中没有视频可供删除");
-        }
-
-
-
-
+        
+//        // 创建 PHFetchOptions 对象，用于排序和限制获取视频数量
+//        PHFetchOptions *fetchOptions = [[PHFetchOptions alloc] init];
+//        fetchOptions.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
+//        fetchOptions.fetchLimit = 1; // 限制只获取一条视频记录
+//        
+//        // 获取最近的一条视频 PHAsset 对象
+//        PHFetchResult<PHAsset *> *recentVideoAssets = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeVideo options:fetchOptions];
+//        
+//        // 检查是否获取到了视频
+//        if (recentVideoAssets.count > 0) {
+//            PHAsset *recentVideoAsset = recentVideoAssets.firstObject;
+//            
+//            // 删除最近的一条视频
+//            [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
+//                [PHAssetChangeRequest deleteAssets:@[recentVideoAsset]];
+//            } completionHandler:^(BOOL success, NSError * _Nullable error) {
+//                if (success) {
+//                    NSLog(@"最近的一条视频删除成功");
+//                } else {
+//                    NSLog(@"最近的一条视频删除失败：%@", error);
+//                }
+//            }];
+//        } else {
+//            NSLog(@"相册中没有视频可供删除");
+//        }
+//        
+        
+        
+        
         
         // 将视频路径和 MD5 码一起返回给 Flutter
-        if (self.result) {
-            self.result(@{@"path": self.targetFileName, @"md5": md5});
-            self.result = nil;
+        if (self.resultStop) {
+            self.resultStop(@{@"path": self.targetFileName, @"md5": md5});
+            self.resultStop = nil;
         }
     } else {
         NSLog(@"保存视频时发生错误: %@", error);
