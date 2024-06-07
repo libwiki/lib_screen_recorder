@@ -377,7 +377,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         NSData *videoData = [NSData dataWithContentsOfURL:[NSURL fileURLWithPath:self.targetFileName]];
         
         // 处理视频数据，设置帧率和码率等参数
-        [self compressVideoWithVideoUrl:videoURL withBiteRate:self.bitRate withFrameRate:self.frameRate withVideoWidth:@([UIScreen mainScreen].bounds.size.width) withVideoHeight:@([UIScreen mainScreen].bounds.size.height) compressComplete:^(id responseObjc) {
+        [self compressVideoWithVideoUrl:videoURL withBiteRate:self.bitRate withFrameRate:self.frameRate withVideoWidth: nil withVideoHeight:nil compressComplete:^(id responseObjc) {
             NSData *processedVideoData = [self videoDataAtPath:self.targetFileName];
             NSString *md5 = [self MD5ForData:processedVideoData];
             NSLog(@"视频文件 MD5: %@", md5);
