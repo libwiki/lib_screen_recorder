@@ -5,55 +5,65 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <CommonCrypto/CommonDigest.h>
 
-API_AVAILABLE(ios(10.0))
-@interface ScreenRecordingPlugin ()<RPBroadcastActivityViewControllerDelegate,RPBroadcastControllerDelegate, AVCaptureVideoDataOutputSampleBufferDelegate, UIDocumentPickerDelegate, PHPhotoLibraryChangeObserver>
+API_AVAILABLE (ios(
+
+10.0))
+
+@interface ScreenRecordingPlugin () <RPBroadcastActivityViewControllerDelegate, RPBroadcastControllerDelegate, AVCaptureVideoDataOutputSampleBufferDelegate, UIDocumentPickerDelegate, PHPhotoLibraryChangeObserver>
 @property RPBroadcastController *broadcastController;
 @property NSTimer *timer;
 @property UIView *view;
-@property (nonatomic, strong) RPSystemBroadcastPickerView *broadcastPickerView API_AVAILABLE(ios(12.0));
-@property(nonatomic,strong)NSURL* fileURL;
+@property(nonatomic, strong) RPSystemBroadcastPickerView *broadcastPickerView
+
+API_AVAILABLE (ios(
+
+12.0));
+@property(nonatomic, strong) NSURL *fileURL;
 @property NSString *extensionBundleId;
 @property NSString *groupId;
 @property NSString *targetFileName;
-@property (nonatomic, strong) FlutterEventSink eventSink;
+@property(nonatomic, strong) FlutterEventSink eventSink;
 @property BOOL isInited;
-@property (nonatomic, assign) BOOL isRecording;
-@property (nonatomic, copy) FlutterResult resultStart;
-@property (nonatomic, copy) FlutterResult resultStop;
+@property(nonatomic, assign) BOOL isRecording;
+@property(nonatomic, copy) FlutterResult resultStart;
+@property(nonatomic, copy) FlutterResult resultStop;
 // 视频的帧率
-@property (nonatomic, strong) NSNumber *frameRate;
-@property (nonatomic, strong) NSNumber *bitRate;
-@property (nonatomic, assign) BOOL isRecordingStopped;
-@property (nonatomic, strong) PHFetchResult<PHAsset *> *previousFetchResult;
-@property (nonatomic, strong) PHAsset *recentVideoAsset;
+@property(nonatomic, strong) NSNumber *frameRate;
+@property(nonatomic, strong) NSNumber *bitRate;
+@property(nonatomic, assign) BOOL isRecordingStopped;
+@property(nonatomic, strong)
+PHFetchResult<PHAsset *> *
+previousFetchResult;
+@property(nonatomic, strong) PHAsset *recentVideoAsset;
 @end
 
-static NSString * const ScreenHoleNotificationName = @"ScreenHoleNotificationName";
+static NSString *const ScreenHoleNotificationName = @"ScreenHoleNotificationName";
+
 void MyHoleNotificationCallback(CFNotificationCenterRef center,
-                                void * observer,
+                                void *observer,
                                 CFStringRef name,
-                                void const * object,
+                                void const *object,
                                 CFDictionaryRef userInfo) {
-    NSString *identifier = (__bridge NSString *)name;
-    NSObject *sender = (__bridge NSObject *)observer;
+    NSString *identifier = (__bridge NSString *) name;
+    NSObject *sender = (__bridge NSObject *) observer;
     //NSDictionary *info = (__bridge NSDictionary *)userInfo;
     NSDictionary *info = CFBridgingRelease(userInfo);
-    
-    NSDictionary *notiUserInfo = @{@"identifier":identifier};
+
+    NSDictionary *notiUserInfo = @{@"identifier": identifier};
     [[NSNotificationCenter defaultCenter] postNotificationName:ScreenHoleNotificationName
                                                         object:sender
                                                       userInfo:notiUserInfo];
 }
 
 @implementation ScreenRecordingPlugin
-+ (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
-    FlutterMethodChannel* channel = [FlutterMethodChannel
-                                     methodChannelWithName:@"screen_recording"
-                                     binaryMessenger:[registrar messenger]];
-    ScreenRecordingPlugin* instance = [[ScreenRecordingPlugin alloc] init];
++ (void)registerWithRegistrar:(NSObject <FlutterPluginRegistrar> *)registrar {
+    FlutterMethodChannel *channel = [FlutterMethodChannel
+            methodChannelWithName:@"screen_recording"
+                  binaryMessenger:[registrar messenger]];
+    ScreenRecordingPlugin *instance = [[ScreenRecordingPlugin alloc] init];
     [registrar addMethodCallDelegate:instance channel:channel];
-    
-    FlutterEventChannel* eventChannel = [FlutterEventChannel eventChannelWithName:@"screen_recording_stream" binaryMessenger:[registrar messenger]];
+
+    FlutterEventChannel *eventChannel = [FlutterEventChannel eventChannelWithName:@"screen_recording_stream" binaryMessenger:[registrar messenger]];
     [eventChannel setStreamHandler:instance];
 }
 
@@ -76,21 +86,25 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 - (void)screenRecordingChanged:(NSNotification *)notification {
     if ([UIScreen mainScreen].isCaptured) {
         NSLog(@"检测到屏幕录制开启");
-        self.resultStart(@YES);
+        if (self.resultStart) {
+            self.resultStart(@YES);
+        }
     } else {
         NSLog(@"检测到屏幕录制关闭");
-        self.resultStart(@NO);
+        if (self.resultStart) {
+            self.resultStart(@NO);
+        }
     }
 }
 
-- (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
+- (void)handleMethodCall:(FlutterMethodCall *)call result:(FlutterResult)result {
     if ([@"getPlatformVersion" isEqualToString:call.method]) {
         result([@"iOS " stringByAppendingString:[[UIDevice currentDevice] systemVersion]]);
     } else if ([@"startRecordScreen" isEqualToString:call.method]) {
         self.resultStart = result;
-        if(self.isInited){
+        if (self.isInited) {
             NSLog(@"has inited");
-        }else{
+        } else {
             [self initParam];
             self.isInited = YES;
         }
@@ -98,62 +112,83 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     } else if ([@"stopRecordScreen" isEqualToString:call.method]) {
         self.resultStop = result;
         [self stopRecordScreen];
-    }else if ([@"chooseSavePath" isEqualToString:call.method]) {
+    } else if ([@"isCaptured" isEqualToString:call.method]) {
+        if ([UIScreen mainScreen].isCaptured) {
+            result(@YES);
+        } else {
+            result(@NO);
+        }
+
+    } else if ([@"chooseSavePath" isEqualToString:call.method]) {
         [self chooseSavePathWithResult:result];
-    }else if ([@"queryMd5" isEqualToString:call.method]) {
-        NSString *md5 = [self queryMd5: call];
+    } else if ([@"queryMd5" isEqualToString:call.method]) {
+        NSString *md5 = [self queryMd5:call];
         result(md5);
-    }else {
+    } else {
         result(FlutterMethodNotImplemented);
     }
 }
 
-- (void)initParam{
+- (void)initParam {
     //获取主view
-    UIViewController* viewController = [UIApplication sharedApplication].keyWindow.rootViewController;
+    UIViewController *viewController = [UIApplication sharedApplication].keyWindow.rootViewController;
     self.view = viewController.view;
-    
+
     NSString *bundleId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleIdentifier"];
     self.extensionBundleId = [bundleId stringByAppendingString:@".screencap"];
     self.groupId = [@"group." stringByAppendingString:bundleId];
-    
+
     //共享文件名字
-    
+
     NSURL *groupURL = [[NSFileManager defaultManager] containerURLForSecurityApplicationGroupIdentifier:self.groupId];
     self.fileURL = [groupURL URLByAppendingPathComponent:@"test.mp4"];
-    
-    if (@available(iOS 12.0, *)) {
-        self.broadcastPickerView = [[RPSystemBroadcastPickerView alloc] initWithFrame:(CGRect){0, 0, 100, 100}];
+
+    if (@available
+    (iOS
+    12.0, *)) {
+        self.broadcastPickerView = [[RPSystemBroadcastPickerView alloc] initWithFrame:(CGRect) {0,
+                                                                                                0,
+                                                                                                100,
+                                                                                                100}];
     } else {
         // Fallback on earlier versions
     }
-    if(@available(iOS 12.2, *)) {
+    if (@available
+    (iOS
+    12.2, *)) {
         self.broadcastPickerView.preferredExtension = self.extensionBundleId;
     }
     [self.view addSubview:_broadcastPickerView];
-    if (@available(iOS 12.0, *)) {
+    if (@available
+    (iOS
+    12.0, *)) {
         self.broadcastPickerView.hidden = YES;
     } else {
         // Fallback on earlier versions
     }
-    if (@available(iOS 12.0, *)) {
+    if (@available
+    (iOS
+    12.0, *)) {
         self.broadcastPickerView.showsMicrophoneButton = YES;
     } else {
         // Fallback on earlier versions
     }
-    
+
     [self addUploaderEventMonitor];
-    
+
     NSLog(@"init success");
 }
 
 - (void)chooseSavePathWithResult:(FlutterResult)result {
-    if (@available(iOS 14.0, *)) {
-        UIDocumentPickerViewController *documentPicker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder]];
+    if (@available
+    (iOS
+    14.0, *)) {
+        UIDocumentPickerViewController *documentPicker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[
+                UTTypeFolder]];
         documentPicker.delegate = self;
         documentPicker.directoryURL = [NSURL URLWithString:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents"]];
         documentPicker.modalPresentationStyle = UIModalPresentationFormSheet;
-        
+
         UIViewController *rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
         [rootViewController presentViewController:documentPicker animated:YES completion:nil];
     } else {
@@ -169,14 +204,18 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 }
 
 # pragma mark - 用户选择完文件夹地址后，回传给flutter
-- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray
+
+<NSURL *> *)urls {
     NSURL *pickedURL = [urls firstObject];
 }
 
 # pragma mark - 生成md5
+
 - (NSString *)MD5ForData:(NSData *)data {
     unsigned char result[CC_MD5_DIGEST_LENGTH];
-    CC_MD5(data.bytes, (CC_LONG)data.length, result);
+    CC_MD5(data.bytes, (CC_LONG) data.length, result);
     NSMutableString *hash = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
     for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
         [hash appendFormat:@"%02x", result[i]];
@@ -185,37 +224,42 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 }
 
 
-- (void)startRecorScreen:(FlutterMethodCall*)call {
+- (void)startRecorScreen:(FlutterMethodCall *)call {
     // 申请相册权限以及初始化
     [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
         if (status != PHAuthorizationStatusAuthorized) {
             return;
         }
         PHFetchOptions *fetchOptions = [[PHFetchOptions alloc] init];
-        fetchOptions.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
+        fetchOptions.sortDescriptors = @[
+                [NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
         fetchOptions.fetchLimit = 1;
-        
+
         self.previousFetchResult = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeVideo options:fetchOptions];
     }];
     [[PHPhotoLibrary sharedPhotoLibrary] registerChangeObserver:self];
     // 这个path就是自定义保存路径的参数
     self.targetFileName = call.arguments[@"path"];
-    NSLog(@"targetFileName:%@",self.targetFileName);
+    NSLog(@"targetFileName:%@", self.targetFileName);
     // 获取帧率参数，默认值为 25
     self.frameRate = call.arguments[@"frameRate"] ?: @(25);
     NSLog(@"帧率：%@", self.frameRate);
-    
+
     // 获取码率参数，默认值为 7500000
     self.bitRate = call.arguments[@"bitRate"] ?: @(7500000);
     NSLog(@"码率：%@", self.bitRate);
-    if (@available(iOS 12.0, *)) {
-        
+    if (@available
+    (iOS
+    12.0, *)) {
+
         for (UIView *view in self.broadcastPickerView.subviews) {
             if ([view isKindOfClass:[UIButton class]]) {
-                if (@available(iOS 13, *)) {
-                    [(UIButton *)view sendActionsForControlEvents:UIControlEventTouchUpInside];
+                if (@available
+                (iOS
+                13, *)) {
+                    [(UIButton *) view sendActionsForControlEvents:UIControlEventTouchUpInside];
                 } else {
-                    [(UIButton *)view sendActionsForControlEvents:UIControlEventTouchDown];
+                    [(UIButton *) view sendActionsForControlEvents:UIControlEventTouchDown];
                 }
             }
         }
@@ -266,8 +310,8 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     PHPhotoLibrary *photoLibrary = [PHPhotoLibrary sharedPhotoLibrary];
     [photoLibrary performChanges:^{
         [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:url];
-        
-    } completionHandler:^(BOOL success, NSError * _Nullable error) {
+
+    }          completionHandler:^(BOOL success, NSError *_Nullable error) {
         if (success) {
             NSLog(@"已将视频保存至相册");
         } else {
@@ -281,25 +325,29 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 - (void)stopRecordScreen {
     if ([UIScreen mainScreen].isCaptured) {
         NSLog(@"正在录屏");
-    }else {
+    } else {
         UIAlertController *alertController = [UIAlertController alertControllerWithTitle:@"录屏未启动"
                                                                                  message:@"您尚未启动系统录屏，请先启动录屏后再进行操作。"
                                                                           preferredStyle:UIAlertControllerStyleAlert];
         [alertController addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
-        
+
         UIViewController *rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
         [rootViewController presentViewController:alertController animated:YES completion:nil];
         return;
     }
     self.isRecordingStopped = YES;
-    if (@available(iOS 12.0, *)) {
-        
+    if (@available
+    (iOS
+    12.0, *)) {
+
         for (UIView *view in self.broadcastPickerView.subviews) {
             if ([view isKindOfClass:[UIButton class]]) {
-                if (@available(iOS 13, *)) {
-                    [(UIButton *)view sendActionsForControlEvents:UIControlEventTouchUpInside];
+                if (@available
+                (iOS
+                13, *)) {
+                    [(UIButton *) view sendActionsForControlEvents:UIControlEventTouchUpInside];
                 } else {
-                    [(UIButton *)view sendActionsForControlEvents:UIControlEventTouchDown];
+                    [(UIButton *) view sendActionsForControlEvents:UIControlEventTouchDown];
                 }
             }
         }
@@ -315,12 +363,14 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 - (void)photoLibraryDidChange:(PHChange *)changeInstance {
     if (self.isRecordingStopped) {
         PHFetchOptions *fetchOptions = [[PHFetchOptions alloc] init];
-        fetchOptions.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
+        fetchOptions.sortDescriptors = @[
+                [NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
         fetchOptions.fetchLimit = 1;
-        
-        PHFetchResult<PHAsset *> *currentFetchResult = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeVideo options:fetchOptions];
+
+        PHFetchResult < PHAsset * >
+        *currentFetchResult = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeVideo options:fetchOptions];
         PHFetchResultChangeDetails *changeDetails = [changeInstance changeDetailsForFetchResult:self.previousFetchResult];
-        
+
         if (changeDetails != nil) {
             // 有新的视频添加到相册中
             if (currentFetchResult.count > 0) {
@@ -340,7 +390,8 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 
 - (void)fetchRecentVideo {
     PHFetchOptions *options = [[PHFetchOptions alloc] init];
-    options.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
+    options.sortDescriptors = @[
+            [NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
     PHFetchResult *videos = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeVideo options:options];
     if (videos.count > 0) {
         PHAsset *videoAsset = videos.firstObject;
@@ -349,9 +400,11 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 }
 
 - (void)requestVideoURLFromAsset:(PHAsset *)asset {
-    [[PHImageManager defaultManager] requestAVAssetForVideo:asset options:nil resultHandler:^(AVAsset * _Nullable asset, AVAudioMix * _Nullable audioMix, NSDictionary * _Nullable info) {
+    [[PHImageManager defaultManager] requestAVAssetForVideo:asset options:nil resultHandler:^(
+            AVAsset *_Nullable asset, AVAudioMix *_Nullable audioMix, NSDictionary *_Nullable
+            info) {
         if ([asset isKindOfClass:[AVURLAsset class]]) {
-            NSURL *videoURL = [(AVURLAsset *)asset URL];
+            NSURL *videoURL = [(AVURLAsset *) asset URL];
             [self saveVideoToCustomPath:videoURL];
         }
     }];
@@ -370,18 +423,19 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
             return;
         }
     }
-    
+
     BOOL success = [[NSFileManager defaultManager] copyItemAtURL:videoURL toURL:[NSURL fileURLWithPath:self.targetFileName] error:&error];
     if (success) {
         NSLog(@"视频已保存到自定义路径: %@", self.targetFileName);
         NSData *videoData = [NSData dataWithContentsOfURL:[NSURL fileURLWithPath:self.targetFileName]];
-        
+
         // 处理视频数据，设置帧率和码率等参数
-        [self compressVideoWithVideoUrl:videoURL withBiteRate:self.bitRate withFrameRate:self.frameRate withVideoWidth: nil withVideoHeight:nil compressComplete:^(id responseObjc) {
+        [self compressVideoWithVideoUrl:videoURL withBiteRate:self.bitRate withFrameRate:self.frameRate withVideoWidth:nil withVideoHeight:nil compressComplete:^(
+                id responseObjc) {
             NSData *processedVideoData = [self videoDataAtPath:self.targetFileName];
             NSString *md5 = [self MD5ForData:processedVideoData];
             NSLog(@"视频文件 MD5: %@", md5);
-            
+
             // 将处理后的视频数据覆盖写入目标路径
             NSError *error = nil;
             NSFileManager *fileManager = [NSFileManager defaultManager];
@@ -404,14 +458,15 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
             }
             // 删除最近的一条视频
             [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
-                [PHAssetChangeRequest deleteAssets:@[self.recentVideoAsset]];
-            } completionHandler:^(BOOL success, NSError * _Nullable error) {
-                if (success) {
-                    NSLog(@"最近的一条视频删除成功");
-                } else {
-                    NSLog(@"最近的一条视频删除失败：%@", error);
-                }
-                
+//                [PHAssetChangeRequest deleteAssets:@[self.recentVideoAsset]];
+            }                                 completionHandler:^(BOOL success, NSError *_Nullable
+                                                                  error) {
+//                if (success) {
+//                    NSLog(@"最近的一条视频删除成功");
+//                } else {
+//                    NSLog(@"最近的一条视频删除失败：%@", error);
+//                }
+
                 // 注销相册变化观察者
                 [[PHPhotoLibrary sharedPhotoLibrary] unregisterChangeObserver:self];
             }];
@@ -436,7 +491,8 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
  * outputWidth 压缩视频至指定高度 可传nil 默认540
  * compressComplete 压缩后的视频信息回调 (id responseObjc) 可自行打印查看
  **/
-- (void)compressVideoWithVideoUrl:(NSURL *)videoUrl withBiteRate:(NSNumber * _Nullable)outputBiteRate withFrameRate:(NSNumber * _Nullable)outputFrameRate withVideoWidth:(NSNumber * _Nullable)outputWidth withVideoHeight:(NSNumber * _Nullable)outputHeight compressComplete:(void(^)(id responseObjc))compressComplete{
+- (void)compressVideoWithVideoUrl:(NSURL *)videoUrl withBiteRate:(NSNumber * _Nullable)outputBiteRate withFrameRate:(NSNumber * _Nullable)outputFrameRate withVideoWidth:(NSNumber * _Nullable)outputWidth withVideoHeight:(NSNumber * _Nullable)outputHeight compressComplete:(void (^)(
+        id responseObjc))compressComplete {
     if (!videoUrl) {
         NSLog(@"视频路径不能为空");
         return;
@@ -450,14 +506,14 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     AVURLAsset *asset = [AVURLAsset assetWithURL:videoUrl];
     //视频时长 S
     CMTime time = [asset duration];
-    NSInteger seconds = ceil(time.value/time.timescale);
+    NSInteger seconds = ceil(time.value / time.timescale);
     if (seconds < 3) {
         NSLog(@"请上传3秒以上的视频");
         return;
     }
     //压缩前原视频大小MB
     unsigned long long fileSize = [[NSFileManager defaultManager] attributesOfItemAtPath:videoUrl.path error:nil].fileSize;
-    float fileSizeMB = fileSize / (1024.0*1024.0);
+    float fileSizeMB = fileSize / (1024.0 * 1024.0);
     //取出asset中的视频文件
     AVAssetTrack *videoTrack = [asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
     //压缩前原视频宽高
@@ -467,20 +523,23 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     NSInteger kbps = videoTrack.estimatedDataRate / 1024;
     //压缩前原视频帧率
     NSInteger frameRate = [videoTrack nominalFrameRate];
-    NSLog(@"\noriginalVideo\nfileSize = %.2f MB,\n videoWidth = %ld,\n videoHeight = %ld,\n video bitRate = %ld\n, video frameRate = %ld", fileSizeMB, videoWidth, videoHeight, kbps, frameRate);
-    NSMutableDictionary *dic = [NSMutableDictionary dictionaryWithDictionary:@{@"urlStr" : videoUrl.path}];
+    NSLog(@"\noriginalVideo\nfileSize = %.2f MB,\n videoWidth = %ld,\n videoHeight = %ld,\n video bitRate = %ld\n, video frameRate = %ld",
+          fileSizeMB, videoWidth, videoHeight, kbps, frameRate);
+    NSMutableDictionary *dic = [NSMutableDictionary dictionaryWithDictionary:@{
+            @"urlStr": videoUrl.path}];
     //原视频比特率小于指定比特率 不压缩 返回原视频
     if (kbps <= (compressBiteRate / 1024)) {
         compressComplete(dic);
         return;
     }
     //指定压缩视频沙盒根目录
-    NSString *cachesDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
+    NSString *cachesDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask,
+                                                               YES) firstObject];
     //添加文件完整路径
     NSLog(@"===压缩视频存放的指定路径%@===", self.targetFileName);
     //如果指定路径下已存在其他文件 先移除指定文件
     if ([[NSFileManager defaultManager] fileExistsAtPath:self.targetFileName]) {
-        BOOL removeSuccess =  [[NSFileManager defaultManager] removeItemAtPath:self.targetFileName error:nil];
+        BOOL removeSuccess = [[NSFileManager defaultManager] removeItemAtPath:self.targetFileName error:nil];
         if (!removeSuccess) {
             NSLog(@"旧文件移除失败");
             return;
@@ -570,8 +629,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
             [reader cancelReading];
         }
         switch (writer.status) {
-            case AVAssetWriterStatusWriting:
-            {
+            case AVAssetWriterStatusWriting: {
                 NSLog(@"视频压缩完成");
                 [writer finishWritingWithCompletionHandler:^{
                     [dic setObject:self.targetFileName forKey:@"urlStr"];
@@ -585,8 +643,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
             case AVAssetWriterStatusFailed:
                 NSLog(@"===error：%@===", writer.error);
                 break;
-            case AVAssetWriterStatusCompleted:
-            {
+            case AVAssetWriterStatusCompleted: {
                 NSLog(@"视频压缩完成");
                 [writer finishWritingWithCompletionHandler:^{
                     [dic setObject:self.targetFileName forKey:@"urlStr"];
@@ -611,7 +668,7 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     return videoData;
 }
 
-- (NSDictionary *)videoCompressSettingsWithBitRate:(NSInteger)biteRate withFrameRate:(NSInteger)frameRate withWidth:(NSInteger)width WithHeight:(NSInteger)height withOriginalWidth:(NSInteger)originalWidth withOriginalHeight:(NSInteger)originalHeight{
+- (NSDictionary *)videoCompressSettingsWithBitRate:(NSInteger)biteRate withFrameRate:(NSInteger)frameRate withWidth:(NSInteger)width WithHeight:(NSInteger)height withOriginalWidth:(NSInteger)originalWidth withOriginalHeight:(NSInteger)originalHeight {
     /*
      * AVVideoAverageBitRateKey： 比特率（码率）每秒传输的文件大小 kbps
      * AVVideoExpectedSourceFrameRateKey：帧率 每秒播放的帧数
@@ -623,81 +680,86 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
      **/
     NSInteger returnWidth = originalWidth > originalHeight ? width : height;
     NSInteger returnHeight = originalWidth > originalHeight ? height : width;
-    
+
     NSDictionary *compressProperties = @{
-                                         AVVideoAverageBitRateKey : @(biteRate),
-                                         AVVideoExpectedSourceFrameRateKey : @(frameRate),
-                                         AVVideoProfileLevelKey : AVVideoProfileLevelH264HighAutoLevel
-                                         };
-    if (@available(iOS 11.0, *)) {
+            AVVideoAverageBitRateKey: @(biteRate),
+            AVVideoExpectedSourceFrameRateKey: @(frameRate),
+            AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
+    };
+    if (@available
+    (iOS
+    11.0, *)) {
         NSDictionary *compressSetting = @{
-                                          AVVideoCodecKey : AVVideoCodecTypeH264,
-                                          AVVideoWidthKey : @(returnWidth),
-                                          AVVideoHeightKey : @(returnHeight),
-                                          AVVideoCompressionPropertiesKey : compressProperties,
-                                          AVVideoScalingModeKey : AVVideoScalingModeResizeAspectFill
-                                          };
+                AVVideoCodecKey: AVVideoCodecTypeH264,
+                AVVideoWidthKey: @(returnWidth),
+                AVVideoHeightKey: @(returnHeight),
+                AVVideoCompressionPropertiesKey: compressProperties,
+                AVVideoScalingModeKey: AVVideoScalingModeResizeAspectFill
+        };
         return compressSetting;
     }else {
         NSDictionary *compressSetting = @{
-                                          AVVideoCodecKey : AVVideoCodecTypeH264,
-                                          AVVideoWidthKey : @(returnWidth),
-                                          AVVideoHeightKey : @(returnHeight),
-                                          AVVideoCompressionPropertiesKey : compressProperties,
-                                          AVVideoScalingModeKey : AVVideoScalingModeResizeAspectFill
-                                          };
+                AVVideoCodecKey: AVVideoCodecTypeH264,
+                AVVideoWidthKey: @(returnWidth),
+                AVVideoHeightKey: @(returnHeight),
+                AVVideoCompressionPropertiesKey: compressProperties,
+                AVVideoScalingModeKey: AVVideoScalingModeResizeAspectFill
+        };
         return compressSetting;
     }
 }
+
 //音频设置
-- (NSDictionary *)audioCompressSettings{
+- (NSDictionary *)audioCompressSettings {
     AudioChannelLayout stereoChannelLayout = {
-        .mChannelLayoutTag = kAudioChannelLayoutTag_Stereo,
-        .mChannelBitmap = kAudioChannelBit_Left,
-        .mNumberChannelDescriptions = 0,
+            .mChannelLayoutTag = kAudioChannelLayoutTag_Stereo,
+            .mChannelBitmap = kAudioChannelBit_Left,
+            .mNumberChannelDescriptions = 0,
     };
-    NSData *channelLayoutAsData = [NSData dataWithBytes:&stereoChannelLayout length:offsetof(AudioChannelLayout, mChannelDescriptions)];
+    NSData *channelLayoutAsData = [NSData dataWithBytes:&stereoChannelLayout length:offsetof(
+            AudioChannelLayout, mChannelDescriptions)];
     NSDictionary *audioCompressSettings = @{
-                                            AVFormatIDKey : @(kAudioFormatMPEG4AAC),
-                                            AVEncoderBitRateKey : @(128000),
-                                            AVSampleRateKey : @(44100),
-                                            AVNumberOfChannelsKey : @(2),
-                                            AVChannelLayoutKey : channelLayoutAsData
-                                            };
+            AVFormatIDKey: @(kAudioFormatMPEG4AAC),
+            AVEncoderBitRateKey: @(128000),
+            AVSampleRateKey: @(44100),
+            AVNumberOfChannelsKey: @(2),
+            AVChannelLayoutKey: channelLayoutAsData
+    };
     return audioCompressSettings;
 }
+
 /** 音频解码 */
-- (NSDictionary *)configAudioOutput
-{
+- (NSDictionary *)configAudioOutput {
     NSDictionary *audioOutputSetting = @{
-                                         AVFormatIDKey: @(kAudioFormatLinearPCM)
-                                         };
+            AVFormatIDKey: @(kAudioFormatLinearPCM)
+    };
     return audioOutputSetting;
 }
+
 /** 视频解码 */
-- (NSDictionary *)configVideoOutput
-{
+- (NSDictionary *)configVideoOutput {
     NSDictionary *videoOutputSetting = @{
-                                         (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey:[NSNumber numberWithUnsignedInt:kCVPixelFormatType_422YpCbCr8],
-                                         (__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey:[NSDictionary dictionary]
-                                         };
-    
+            (__bridge NSString *) kCVPixelBufferPixelFormatTypeKey: [NSNumber numberWithUnsignedInt:kCVPixelFormatType_422YpCbCr8],
+            (__bridge NSString *) kCVPixelBufferIOSurfacePropertiesKey: [NSDictionary dictionary]
+    };
+
     return videoOutputSetting;
 }
 
 #pragma mark - FlutterStreamHandler
 
-- (FlutterError* _Nullable)onListenWithArguments:(id _Nullable)arguments eventSink:(FlutterEventSink)events {
+- (FlutterError * _Nullable)onListenWithArguments:(id _Nullable)arguments eventSink:(FlutterEventSink)events {
     self.eventSink = events;
     return nil;
 }
 
-- (FlutterError* _Nullable)onCancelWithArguments:(id _Nullable)arguments {
+- (FlutterError * _Nullable)onCancelWithArguments:(id _Nullable)arguments {
     self.eventSink = nil;
     return nil;
 }
 
 #pragma mark - 接收来自extension的消息
+
 - (void)addUploaderEventMonitor {
     [self registerForNotificationsWithIdentifier:@"broadcastStarted"];
     [self registerForNotificationsWithIdentifier:@"broadcastFinished"];
@@ -705,13 +767,14 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 }
 
 - (void)broadcastInfo:(NSNotification *)noti {
-    
+
     NSDictionary *userInfo = noti.userInfo;
     NSString *identifier = userInfo[@"identifier"];
-    FlutterViewController *controller = (FlutterViewController*)[UIApplication sharedApplication].keyWindow.rootViewController;
+    FlutterViewController *controller = (FlutterViewController * )
+    [UIApplication sharedApplication].keyWindow.rootViewController;
     FlutterMethodChannel *methodChannel = [FlutterMethodChannel methodChannelWithName:@"screen_recording"
-                                                                      binaryMessenger: controller.binaryMessenger];
-    
+                                                                      binaryMessenger:controller.binaryMessenger];
+
     if ([identifier isEqualToString:@"broadcastStarted"]) {
         NSLog(@"开始录屏");
         [methodChannel invokeMethod:@"start" arguments:nil];
@@ -719,43 +782,50 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
     if ([identifier isEqualToString:@"broadcastFinished"]) {
         NSLog(@"结束录屏");
         //reload数据
-        NSData* data = [[NSFileManager defaultManager] contentsAtPath:[self.fileURL path]];
+        NSData *data = [[NSFileManager defaultManager] contentsAtPath:[self.fileURL path]];
         NSLog(@"%@", self.targetFileName);
         [data writeToURL:[NSURL fileURLWithPath:self.targetFileName] atomically:NO];
-        NSLog(@"获取的总长度%lu",data.length);
-        
+        NSLog(@"获取的总长度%lu", data.length);
+
         [methodChannel invokeMethod:@"end" arguments:nil];
-        
-        
+
+
     }
 }
 
 #pragma mark - 移除Observer
+
 - (void)removeUploaderEventMonitor {
-    
+
     [self unregisterForNotificationsWithIdentifier:@"broadcastFinished"];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:ScreenHoleNotificationName object:nil];
-    
+
 }
+
 #pragma mark - 宿主与extension之间的通知
-- (void)registerForNotificationsWithIdentifier:(nullable NSString *)identifier {
+
+- (void)registerForNotificationsWithIdentifier:(nullable NSString
+
+*)identifier {
     [self unregisterForNotificationsWithIdentifier:identifier];
     CFNotificationCenterRef const center = CFNotificationCenterGetDarwinNotifyCenter();
-    CFStringRef str = (__bridge CFStringRef)identifier;
-    NSLog(@"identifier:%@",str);
+    CFStringRef str = (__bridge CFStringRef) identifier;
+    NSLog(@"identifier:%@", str);
     CFNotificationCenterAddObserver(center,
-                                    (__bridge const void *)(self),
+                                    (__bridge const void *) (self),
                                     MyHoleNotificationCallback,
                                     str,
                                     NULL,
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
 }
 
-- (void)unregisterForNotificationsWithIdentifier:(nullable NSString *)identifier {
+- (void)unregisterForNotificationsWithIdentifier:(nullable NSString
+
+*)identifier {
     CFNotificationCenterRef const center = CFNotificationCenterGetDarwinNotifyCenter();
-    CFStringRef str = (__bridge CFStringRef)identifier;
+    CFStringRef str = (__bridge CFStringRef) identifier;
     CFNotificationCenterRemoveObserver(center,
-                                       (__bridge const void *)(self),
+                                       (__bridge const void *) (self),
                                        str,
                                        NULL);
 }
