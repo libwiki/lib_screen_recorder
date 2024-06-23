@@ -1,7 +1,5 @@
 import 'package:flutter/services.dart';
 
-import 'screen_recording_platform_interface.dart';
-
 class ScreenRecording {
   static const MethodChannel _channel = MethodChannel('screen_recording');
 
@@ -13,6 +11,33 @@ class ScreenRecording {
   Future<String> get platformVersion async {
     final String version = await _channel.invokeMethod('getPlatformVersion');
     return version;
+  }
+
+  static Map<String, ValueChanged> listens = {};
+
+  static bool isInit = false;
+
+  static addListen(String method, ValueChanged func) {
+    listens[method] = func;
+    if (isInit) {
+      return;
+    }
+    isInit = true;
+    _channel.setMethodCallHandler((call) async {
+      final func = listens[call.method];
+      if (func != null) {
+        func(call.arguments);
+      }
+    });
+  }
+
+  static clearListen() {
+    listens.clear();
+    isInit = false;
+  }
+
+  static removeListen(String method) {
+    listens.remove(method);
   }
 
   // 不设置path参数，默认就是保存到相册中

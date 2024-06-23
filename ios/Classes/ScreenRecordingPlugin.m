@@ -22,6 +22,7 @@ API_AVAILABLE (ios(
 @property NSString *extensionBundleId;
 @property NSString *groupId;
 @property NSString *targetFileName;
+@property(nonatomic, strong) FlutterMethodChannel *channel;
 @property(nonatomic, strong) FlutterEventSink eventSink;
 @property BOOL isInited;
 @property(nonatomic, assign) BOOL isRecording;
@@ -57,11 +58,12 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 
 @implementation ScreenRecordingPlugin
 + (void)registerWithRegistrar:(NSObject <FlutterPluginRegistrar> *)registrar {
-    FlutterMethodChannel *channel = [FlutterMethodChannel
+    ScreenRecordingPlugin *instance = [[ScreenRecordingPlugin alloc] init];
+
+    instance.channel = [FlutterMethodChannel
             methodChannelWithName:@"screen_recording"
                   binaryMessenger:[registrar messenger]];
-    ScreenRecordingPlugin *instance = [[ScreenRecordingPlugin alloc] init];
-    [registrar addMethodCallDelegate:instance channel:channel];
+    [registrar addMethodCallDelegate:instance channel:instance.channel];
 
     FlutterEventChannel *eventChannel = [FlutterEventChannel eventChannelWithName:@"screen_recording_stream" binaryMessenger:[registrar messenger]];
     [eventChannel setStreamHandler:instance];
@@ -86,14 +88,22 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
 - (void)screenRecordingChanged:(NSNotification *)notification {
     if ([UIScreen mainScreen].isCaptured) {
         NSLog(@"检测到屏幕录制开启");
+        if (self.channel != nil) {
+            NSLog(@"调用方法onStart");
+            [self.channel invokeMethod:@"onStart" arguments:nil];
+        }
         if (self.resultStart) {
             self.resultStart(@YES);
         }
     } else {
         NSLog(@"检测到屏幕录制关闭");
-        if (self.resultStart) {
-            self.resultStart(@NO);
+        if (self.channel != nil) {
+            NSLog(@"调用方法onStop");
+            [self.channel invokeMethod:@"onStop" arguments:nil];
         }
+//        if (self.resultStart) {
+//            self.resultStart(@NO);
+//        }
     }
 }
 
@@ -474,6 +484,10 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
             if (self.resultStop) {
                 self.resultStop(@{@"path": self.targetFileName, @"md5": md5});
                 self.resultStop = nil;
+            }
+            if (self.channel != nil) {
+                NSLog(@"调用方法onSaved");
+                [self.channel invokeMethod:@"onSaved" arguments:@{@"path": self.targetFileName, @"md5": md5}];
             }
         }];
     } else {
