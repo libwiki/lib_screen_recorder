@@ -487,7 +487,8 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
             }
             if (self.channel != nil) {
                 NSLog(@"调用方法onSaved");
-                [self.channel invokeMethod:@"onSaved" arguments:@{@"path": self.targetFileName, @"md5": md5}];
+                [self.channel invokeMethod:@"onSaved" arguments:@{@"path": self.targetFileName,
+                                                                  @"md5": md5}];
             }
         }];
     } else {
@@ -511,11 +512,20 @@ void MyHoleNotificationCallback(CFNotificationCenterRef center,
         NSLog(@"视频路径不能为空");
         return;
     }
+    // 获取主屏幕
+    UIScreen *screen = [UIScreen mainScreen];
+
+    // 获取屏幕的尺寸
+    CGRect screenRect = screen.bounds;
+    // 获取宽度和高度并转换为 NSInteger
+    NSInteger screenWidth = lroundf(CGRectGetWidth(screenRect));
+    NSInteger screenHeight = lroundf(CGRectGetHeight(screenRect));
+
     NSLog(@"===videoUrl.abs = %@, videoUrl.path = %@", videoUrl.absoluteString, videoUrl.path);
     NSInteger compressBiteRate = outputBiteRate ? [outputBiteRate integerValue] : 1500 * 1024;
-    NSInteger compressFrameRate = outputFrameRate ? [outputFrameRate integerValue] : 30;
-    NSInteger compressWidth = outputWidth ? [outputWidth integerValue] : 960;
-    NSInteger compressHeight = outputHeight ? [outputHeight integerValue] : 540;
+    NSInteger compressFrameRate = outputFrameRate ? [outputFrameRate integerValue] : 25;
+    NSInteger compressWidth = outputWidth ? [outputWidth integerValue] : screenWidth;
+    NSInteger compressHeight = outputHeight ? [outputHeight integerValue] : screenHeight;
     //取出原视频详细资料
     AVURLAsset *asset = [AVURLAsset assetWithURL:videoUrl];
     //视频时长 S
